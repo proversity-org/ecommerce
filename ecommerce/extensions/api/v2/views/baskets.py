@@ -18,7 +18,6 @@ from ecommerce.extensions.api.constants import APIConstants as AC
 from ecommerce.extensions.api.serializers import OrderSerializer
 from ecommerce.extensions.checkout.mixins import EdxOrderPlacementMixin
 from ecommerce.extensions.payment import exceptions as payment_exceptions
-from ecommerce.extensions.payment.helpers import (get_default_processor_class, get_processor_class_by_name)
 
 Basket = get_model('basket', 'Basket')
 logger = logging.getLogger(__name__)
@@ -176,19 +175,20 @@ class BasketCreateView(EdxOrderPlacementMixin, generics.CreateAPIView):
         if request.data.get(AC.KEYS.CHECKOUT) is True:
             # Begin the checkout process, if requested, with the requested payment processor.
             payment_processor_name = request.data.get(AC.KEYS.PAYMENT_PROCESSOR_NAME)
+            site_configuration = request.site.siteconfiguration
             if payment_processor_name:
                 try:
-                    payment_processor = get_processor_class_by_name(payment_processor_name)
+                    payment_processor = site_configuration.get_payment_processor_by_name(payment_processor_name)
                 except payment_exceptions.ProcessorNotFoundError as error:
                     return self._report_bad_request(
                         error.message,
                         payment_exceptions.PROCESSOR_NOT_FOUND_USER_MESSAGE
                     )
             else:
-                payment_processor = get_default_processor_class()
+                payment_processor = site_configuration.get_default_payment_processor()
 
             try:
-                response_data = self._checkout(basket, payment_processor())
+                response_data = self._checkout(basket, payment_processor)
             except Exception as ex:  # pylint: disable=broad-except
                 basket.delete()
                 logger.exception('Failed to initiate checkout for Basket [%d]. The basket has been deleted.', basket_id)
