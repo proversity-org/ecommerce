@@ -79,6 +79,7 @@ class CourseMigrationView(View):
         commit = request.GET.get('commit', False)
         commit = commit in ('1', 'true')
         partner = get_partner_for_site(request)
+        
 
         # Capture all output and logging
         out = StringIO()
