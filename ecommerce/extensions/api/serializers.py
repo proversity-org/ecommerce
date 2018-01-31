@@ -310,7 +310,7 @@ class CourseSerializer(serializers.HyperlinkedModelSerializer):
         model = Course
         fields = (
             'id', 'url', 'name', 'verification_deadline', 'type',
-            'products_url', 'last_edited', 'products', 'has_active_bulk_enrollment_code')
+            'products_url', 'last_edited', 'products', 'has_active_bulk_enrollment_code', 'is_subscription')
         read_only_fields = ('type', 'products', 'site')
         extra_kwargs = {
             'url': {'view_name': COURSE_DETAIL_VIEW}
