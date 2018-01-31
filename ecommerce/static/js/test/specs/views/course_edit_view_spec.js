@@ -129,6 +129,7 @@ define([
                     name: 'edX Demonstration Course',
                     verification_deadline: null,
                     honor_mode: false,
+                    is_subscription: false,
                     type: 'credit',
                     products_url: 'http://ecommerce.local:8002/api/v2/courses/edX/DemoX/Demo_Course/products/',
                     last_edited: '2015-07-27T00:27:23Z',

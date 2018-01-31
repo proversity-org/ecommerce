@@ -55,6 +55,18 @@ define([
                     expect(view.$('#enableBulkEnrollmentCode').prop('checked')).toBeTruthy();
                 });
             });
+
+            describe('is subscription code tests', function() {
+                it('should check is-subscription checkbox', function() {
+                    view.$el.append(
+                        '<input type="radio" name="is_subscription" value="true" id="enableSubscription">' +
+                        '<input type="radio" name="is_subscription" value="false" id="enableSubscription">'
+                        );
+                    view.model.set('is_subscription', true);
+                    view.toggleBulkEnrollmentField();
+                    expect(view.$('#enableSubscription').prop('checked')).toBeTruthy();
+                });
+            });
         });
     }
 );

@@ -121,6 +121,13 @@ define([
                 'input[name=bulk_enrollment_code]': {
                     observe: 'has_active_bulk_enrollment_code',
                     onSet: 'cleanBooleanValue'
+                },
+                'input[name=is_subscription]': {
+                    observe: 'is_subscription',
+                    setOptions: {
+                        validate: true
+                    },
+                    onSet: 'cleanBooleanValue'
                 }
             },
 
@@ -206,6 +213,7 @@ define([
 
                 this.stickit();
                 this.toggleBulkEnrollmentField();
+                this.toggleIsSubscription();
                 this._super();
 
                 return this;
@@ -258,6 +266,7 @@ define([
 
                 return this;
             },
+            
 
             /**
              * Makes honor mode read only if editing an existing course.

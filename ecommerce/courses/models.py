@@ -41,6 +41,7 @@ class Course(models.Model):
     created = models.DateTimeField(null=True, auto_now_add=True)
     modified = models.DateTimeField(null=True, auto_now=True)
     thumbnail_url = models.URLField(null=True, blank=True)
+    is_subscription = models.BooleanField(default=0)
 
     def __unicode__(self):
         return unicode(self.id)

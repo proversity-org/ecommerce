@@ -95,6 +95,26 @@
     </div>
 </div>
 
+<div class="fields">
+    <div class="form-group is-subscription hidden">
+        <label class="hd-4"><%- gettext('Set for subscription production') %></label>
+
+        <div class="input-group">
+            <label class="radio-inline">
+                <input type="radio" name="is_subscription" value="true" aria-describedby="isSubscriptionHelpBlock" id="enableSubscription"> Yes
+            </label>
+            <label class="radio-inline">
+                <input type="radio" name="is_subscription" value="false" aria-describedby="isSubscriptionHelpBlock" id="enableSubscription"> No
+            </label>
+            <!-- NOTE: This help-block is here for validation messages. -->
+            <span class="help-block"></span>
+            <span id="isSubscriptionHelpBlock" class="help-block">
+                <%- gettext('Set for subscription production') %>
+            </span>
+        </div>
+    </div>
+</div>
+
 <div class="form-actions">
     <button type="submit" class="btn btn-primary"><%= gettext(editing ? 'Save Changes' : 'Create Course') %></button>
     <a class="btn btn-default" href="/courses/<% if(id){ print(id + '/'); } %>"><%= gettext('Cancel') %></a>

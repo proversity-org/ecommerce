@@ -58,7 +58,8 @@ class AtomicPublicationTests(DiscoveryTestMixin, TestCase):
                         'id': self.course_id,
                         'name': self.course_name,
                         'type': 'verified',
-                        'verification_deadline': None
+                        'verification_deadline': None,
+                        'is_subscription': False
                     }
                 },
                 {
@@ -80,7 +81,8 @@ class AtomicPublicationTests(DiscoveryTestMixin, TestCase):
                         'id': self.course_id,
                         'name': self.course_name,
                         'type': 'verified',
-                        'verification_deadline': None
+                        'verification_deadline': None,
+                        'is_subscription': False
                     }
                 },
                 {
@@ -102,7 +104,8 @@ class AtomicPublicationTests(DiscoveryTestMixin, TestCase):
                         'id': self.course_id,
                         'name': self.course_name,
                         'type': 'verified',
-                        'verification_deadline': None
+                        'verification_deadline': None,
+                        'is_subscription': False
                     }
                 },
                 {
@@ -132,7 +135,8 @@ class AtomicPublicationTests(DiscoveryTestMixin, TestCase):
                         'id': self.course_id,
                         'name': self.course_name,
                         'type': 'verified',
-                        'verification_deadline': None
+                        'verification_deadline': None,
+                        'is_subscription': False
                     }
                 }
             ]
