@@ -124,9 +124,6 @@ define([
                 },
                 'input[name=is_subscription]': {
                     observe: 'is_subscription',
-                    setOptions: {
-                        validate: true
-                    },
                     onSet: 'cleanBooleanValue'
                 }
             },

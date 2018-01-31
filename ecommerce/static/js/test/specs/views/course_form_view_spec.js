@@ -60,10 +60,9 @@ define([
                 it('should check is-subscription checkbox', function() {
                     view.$el.append(
                         '<input type="radio" name="is_subscription" value="true" id="enableSubscription">' +
-                        '<input type="radio" name="is_subscription" value="false" id="enableSubscription">'
+                        '<input type="radio" name="is_subscription" value="false" id="disableSubscription">'
                         );
                     view.model.set('is_subscription', true);
-                    view.toggleBulkEnrollmentField();
                     expect(view.$('#enableSubscription').prop('checked')).toBeTruthy();
                 });
             });
