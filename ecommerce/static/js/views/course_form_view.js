@@ -213,7 +213,6 @@ define([
 
                 this.stickit();
                 this.toggleBulkEnrollmentField();
-                this.toggleIsSubscription();
                 this._super();
 
                 return this;
