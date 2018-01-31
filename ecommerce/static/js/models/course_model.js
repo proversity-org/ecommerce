@@ -54,6 +54,10 @@ define([
                     required: true,
                     msg: gettext('You must select a course type.')
                 },
+                is_subscription: {
+                    required: false,
+                    msg: gettext('Select if course is a subscription product.')
+                },
                 honor_mode: {
                     required: function() {
                         return this.includeHonorMode();
@@ -88,10 +92,6 @@ define([
                     }
 
                     return undefined;
-                },
-                is_subscription: {
-                    rrequired: false,
-                    msg: gettext('Select if course is a subscription product.')
                 }
             },
 
