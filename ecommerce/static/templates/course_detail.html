@@ -19,15 +19,15 @@
         <h3 class="hd-3 de-emphasized"><%= gettext('Course Information') %></h3>
 
         <div class="info-item">
-            <div class="heading" style="display:inline"><%= gettext('Course ID') %></div>
+            <div class="heading" style="display:inline"><%= gettext('Course ID:') %></div>
             <div class="course-id" style="display:inline"><%= course['id'] %></div>
         </div>
         <div class="info-item">
-            <div class="heading" style="display:inline"><%= gettext('Subscription') %></div>
+            <div class="heading" style="display:inline"><%= gettext('Subscription:') %></div>
             <div class="course-subscription" style="display:inline"><%= course['is_subscription'] %></div>
         </div>
         <div class="info-item">
-            <div class="heading" style="display:inline"><%= gettext('Course Type') %></div>
+            <div class="heading" style="display:inline"><%= gettext('Course Type:') %></div>
             <div class="course-type" style="display:inline"><%= courseType %></div>
             <span class="help-block">
                 <%- gettext('NOTE: Courses formerly of type "Honor" now display as "Audit", but continue to function as before so long as they have an "Honor Seat" below') %>
@@ -36,8 +36,8 @@
 
         <% if(verificationDeadline) { %>
         <div class="info-item">
-            <div class="heading"><%= gettext('Verification Deadline') %></div>
-            <div class="course-verification-deadline"><%= verificationDeadline %></div>
+            <div class="heading" style="display:inline"><%= gettext('Verification Deadline') %></div>
+            <div class="course-verification-deadline" style="display:inline"><%= verificationDeadline %></div>
         </div>
         <% } %>
     </div>
