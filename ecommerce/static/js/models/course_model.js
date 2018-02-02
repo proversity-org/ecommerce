@@ -328,7 +328,7 @@ define([
                         create_or_activate_enrollment_code: this.get('has_active_bulk_enrollment_code') || false,
                         is_subscription: this.get('is_subscription')
                     };
-
+                  
                 if (this.includeHonorMode()) {
                     honorMode = this.get('honor_mode');
 

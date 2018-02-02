@@ -286,6 +286,7 @@ class CourseSerializer(serializers.HyperlinkedModelSerializer):
     products_url = serializers.SerializerMethodField()
     last_edited = serializers.SerializerMethodField()
     has_active_bulk_enrollment_code = serializers.SerializerMethodField()
+    is_subscription = serializers.BooleanField()
 
     def __init__(self, *args, **kwargs):
         super(CourseSerializer, self).__init__(*args, **kwargs)
@@ -329,6 +330,7 @@ class AtomicPublicationSerializer(serializers.Serializer):  # pylint: disable=ab
     verification_deadline = serializers.DateTimeField(required=False, allow_null=True)
     products = serializers.ListField()
     create_or_activate_enrollment_code = serializers.BooleanField()
+    is_subscription = serializers.BooleanField()
 
     def __init__(self, *args, **kwargs):
         super(AtomicPublicationSerializer, self).__init__(*args, **kwargs)
@@ -376,6 +378,7 @@ class AtomicPublicationSerializer(serializers.Serializer):  # pylint: disable=ab
         create_or_activate_enrollment_code = self.validated_data.get('create_or_activate_enrollment_code')
         products = self.validated_data['products']
         partner = self.get_partner()
+        is_subscription = self.validated_data['is_subscription']
 
         try:
             if not waffle.switch_is_active('publish_course_modes_to_lms'):
@@ -393,6 +396,7 @@ class AtomicPublicationSerializer(serializers.Serializer):  # pylint: disable=ab
                 course, created = Course.objects.get_or_create(id=course_id, site=site)
                 course.name = course_name
                 course.verification_deadline = course_verification_deadline
+                course.is_subscription = is_subscription
                 course.save()
 
                 create_enrollment_code = False
