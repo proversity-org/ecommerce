@@ -29,7 +29,8 @@ define([
                     id: course.get('id'),
                     type: course.get('type'),
                     name: course.get('name'),
-                    last_edited: moment(course.get('last_edited')).format('MMMM DD, YYYY, h:mm A')
+                    last_edited: moment(course.get('last_edited')).format('MMMM DD, YYYY, h:mm A'),
+                    is_subscription: course.get('is_subscription')
                 };
             },
 
@@ -74,6 +75,10 @@ define([
                                 fnCreatedCell: function(nTd, sData, oData) {
                                     $(nTd).html(_s.capitalize(oData.type));
                                 }
+                            },
+                            {
+                                title: gettext('Subscription'),
+                                data: 'is_subscription'
                             },
                             {
                                 title: gettext('Last Edited'),

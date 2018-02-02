@@ -23,6 +23,10 @@
             <div class="course-id"><%= course['id'] %></div>
         </div>
         <div class="info-item">
+            <div class="heading"><%= gettext('Subscription') %></div>
+            <div class="course-id"><%= course['is_subscription'] %></div>
+        </div>
+        <div class="info-item">
             <div class="heading"><%= gettext('Course Type') %></div>
             <div class="course-type"><%= courseType %></div>
             <span class="help-block">
