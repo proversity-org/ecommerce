@@ -55,6 +55,15 @@ class Stripe(ApplePayMixin, BaseClientSidePaymentProcessor):
         order_number = basket.order_number
         currency = basket.currency
 
+        """
+            TODO:
+            ADD: a get_production method to the basker model
+            ADD: is_subscription check to this processot responce "basket.get_product().course.is_subscription"
+            ADD: split this payment processor to handle the creation of the subscription in stripe https://stripe.com/docs/api#create_subscription
+            ORDER OF EVENTS: create a customer https://stripe.com/docs/api#create_customer
+                Create the subscription with the use of the customer, and then fire a charge to the subscription.
+        """
+
         # NOTE: In the future we may want to get/create a Customer. See https://stripe.com/docs/api#customers.
         try:
             charge = stripe.Charge.create(
