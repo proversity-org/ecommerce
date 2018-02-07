@@ -90,6 +90,7 @@ class LMSPublisher(object):
                 return error_message
 
         try:
+            #TODO: enhance this to post the is_subscription flag to LMS, catch it on LMS and save agains the course attributes or something.
             data = {
                 'id': course_id,
                 'name': name,
