@@ -3,7 +3,6 @@ import hashlib
 import logging
 from urlparse import urljoin
 
-from analytics import Client as SegmentClient
 from dateutil.parser import parse
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
@@ -19,6 +18,7 @@ from jsonfield.fields import JSONField
 from requests.exceptions import ConnectionError, Timeout
 from slumber.exceptions import HttpNotFoundError, SlumberBaseException
 
+from analytics import Client as SegmentClient
 from ecommerce.core.url_utils import get_lms_url
 from ecommerce.core.utils import log_message_and_raise_validation_error
 from ecommerce.extensions.payment.exceptions import ProcessorNotFoundError
@@ -324,6 +324,10 @@ class SiteConfiguration(models.Model):
         """
         return urljoin(settings.ENTERPRISE_SERVICE_URL, path)
 
+    def build_program_dashboard_url(self, uuid):
+        """ Returns a URL to a specific student program dashboard (hosted by LMS). """
+        return self.build_lms_url('/dashboard/programs/{}'.format(uuid))
+
     @property
     def student_dashboard_url(self):
         """ Returns a URL to the student dashboard (hosted by LMS). """
@@ -433,6 +437,10 @@ class SiteConfiguration(models.Model):
     @cached_property
     def enrollment_api_client(self):
         return EdxRestApiClient(self.build_lms_url('/api/enrollment/v1/'), jwt=self.access_token, append_slash=False)
+
+    @cached_property
+    def entitlement_api_client(self):
+        return EdxRestApiClient(self.build_lms_url('/api/entitlements/v1/'), jwt=self.access_token)
 
 
 class User(AbstractUser):

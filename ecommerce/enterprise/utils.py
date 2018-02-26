@@ -18,6 +18,7 @@ from slumber.exceptions import SlumberHttpBaseException
 
 from ecommerce.core.utils import traverse_pagination
 from ecommerce.enterprise.exceptions import EnterpriseDoesNotExist
+from ecommerce.extensions.offer.models import OFFER_PRIORITY_ENTERPRISE
 
 ConditionalOffer = get_model('offer', 'ConditionalOffer')
 StockRecord = get_model('partner', 'StockRecord')
@@ -79,13 +80,16 @@ def get_enterprise_customers(site):
     client = get_enterprise_api_client(site)
     endpoint = getattr(client, resource)
     response = endpoint.get()
-    return [
-        {
-            'name': each['name'],
-            'id': each['uuid'],
-        }
-        for each in traverse_pagination(response, endpoint)
-    ]
+    return sorted(
+        [
+            {
+                'name': each['name'],
+                'id': each['uuid'],
+            }
+            for each in traverse_pagination(response, endpoint)
+        ],
+        key=lambda k: k['name'].lower()
+    )
 
 
 def get_enterprise_customer_consent_failed_context_data(request, voucher):
@@ -352,3 +356,19 @@ def set_enterprise_customer_cookie(site, response, enterprise_customer_uuid, max
         )
 
     return response
+
+
+def has_enterprise_offer(basket):
+    """
+    Return True if the basket has an Enterprise-related offer applied.
+
+    Arguments:
+        basket (Basket): The basket object.
+
+    Returns:
+        boolean: True if the basket has an Enterprise-related offer applied, false otherwise.
+    """
+    for offer in basket.offer_discounts:
+        if offer['offer'].priority == OFFER_PRIORITY_ENTERPRISE:
+            return True
+    return False

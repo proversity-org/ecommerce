@@ -10,9 +10,8 @@ from ecommerce_worker.sailthru.v1.tasks import send_course_refund_email
 from oscar.apps.payment.exceptions import PaymentError
 from oscar.core.loading import get_class, get_model
 from oscar.core.utils import get_default_currency
-from simple_history.models import HistoricalRecords
 
-from ecommerce.core.constants import SEAT_PRODUCT_CLASS_NAME
+from ecommerce.core.constants import COURSE_ENTITLEMENT_PRODUCT_CLASS_NAME, SEAT_PRODUCT_CLASS_NAME
 from ecommerce.extensions.analytics.utils import audit_log
 from ecommerce.extensions.checkout.utils import format_currency, get_receipt_page_url
 from ecommerce.extensions.fulfillment.api import revoke_fulfillment_for_refund
@@ -82,7 +81,6 @@ class Refund(StatusMixin, TimeStampedModel):
         ]
     )
 
-    history = HistoricalRecords()
     pipeline_setting = 'OSCAR_REFUND_STATUS_PIPELINE'
 
     @classmethod
@@ -167,7 +165,8 @@ class Refund(StatusMixin, TimeStampedModel):
             processor = get_processor_class_by_name(source.source_type.name)(self.order.site)
             amount = self.total_credit_excl_tax
 
-            refund_reference_number = processor.issue_credit(self.order, source.reference, amount, self.currency)
+            refund_reference_number = processor.issue_credit(self.order.number, self.order.basket, source.reference,
+                                                             amount, self.currency)
             source.refund(amount, reference=refund_reference_number)
             event_type, __ = PaymentEventType.objects.get_or_create(name=PaymentEventTypeName.REFUNDED)
             PaymentEvent.objects.create(
@@ -207,7 +206,7 @@ class Refund(StatusMixin, TimeStampedModel):
         product = self.lines.first().order_line.product
         product_class = product.get_product_class().name
 
-        if product_class != SEAT_PRODUCT_CLASS_NAME:
+        if product_class not in [SEAT_PRODUCT_CLASS_NAME, COURSE_ENTITLEMENT_PRODUCT_CLASS_NAME]:
             logger.warning(
                 ('No refund notification will be sent for Refund [%d]. The notification supports product lines '
                  'of type Course, not [%s].'),
@@ -215,7 +214,10 @@ class Refund(StatusMixin, TimeStampedModel):
             )
             return
 
-        course_name = self.lines.first().order_line.product.course.name
+        if product_class == SEAT_PRODUCT_CLASS_NAME:
+            course_name = self.lines.first().order_line.product.course.name
+        else:
+            course_name = self.lines.first().order_line.product.title
         order_number = self.order.number
         order_url = get_receipt_page_url(site_configuration, order_number)
         amount = format_currency(self.currency, self.total_credit_excl_tax)
@@ -309,7 +311,6 @@ class RefundLine(StatusMixin, TimeStampedModel):
         ]
     )
 
-    history = HistoricalRecords()
     pipeline_setting = 'OSCAR_REFUND_LINE_STATUS_PIPELINE'
 
     def deny(self):

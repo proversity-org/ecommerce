@@ -9,7 +9,7 @@ from oscar.test.factories import *  # pylint:disable=wildcard-import,unused-wild
 
 from ecommerce.enterprise.benefits import EnterpriseAbsoluteDiscountBenefit, EnterprisePercentageDiscountBenefit
 from ecommerce.enterprise.conditions import EnterpriseCustomerCondition
-from ecommerce.extensions.offer.models import OFFER_PRIORITY_VOUCHER
+from ecommerce.extensions.offer.models import OFFER_PRIORITY_ENTERPRISE, OFFER_PRIORITY_VOUCHER
 from ecommerce.programs.benefits import AbsoluteDiscountBenefitWithoutRange, PercentageDiscountBenefitWithoutRange
 from ecommerce.programs.conditions import ProgramCourseRunSeatsCondition
 from ecommerce.programs.custom import class_path
@@ -19,12 +19,13 @@ Benefit = get_model('offer', 'Benefit')
 Catalog = get_model('catalogue', 'Catalog')
 ConditionalOffer = get_model('offer', 'ConditionalOffer')
 Default = get_class('partner.strategy', 'Default')
+ProductClass = get_model('catalogue', 'ProductClass')
 Voucher = get_model('voucher', 'Voucher')
 
 OrderNumberGenerator = get_class('order.utils', 'OrderNumberGenerator')
 
 
-def create_basket(owner=None, site=None, empty=False, price='10.00'):  # pylint:disable=function-redefined
+def create_basket(owner=None, site=None, empty=False, price='10.00', product_class=None):  # pylint:disable=function-redefined
     if site is None:
         site = SiteConfigurationFactory().site
     if owner is None:
@@ -32,19 +33,23 @@ def create_basket(owner=None, site=None, empty=False, price='10.00'):  # pylint:
     basket = Basket.objects.create(site=site, owner=owner)
     basket.strategy = Default()
     if not empty:
-        product = create_product()
+        if product_class:
+            product_class_instance = ProductClass.objects.get(name=product_class)
+            product = create_product(product_class=product_class_instance)
+        else:
+            product = create_product()
         create_stockrecord(product, num_in_stock=2, price_excl_tax=D(price))
         basket.add_product(product)
     return basket
 
 
 def create_order(number=None, basket=None, user=None, shipping_address=None,  # pylint:disable=function-redefined
-                 shipping_method=None, billing_address=None, total=None, site=None, **kwargs):
+                 shipping_method=None, billing_address=None, total=None, site=None, product_class=None, **kwargs):
     """
     Helper function for creating an order for testing
     """
     if not basket:
-        basket = create_basket(owner=user, site=site)
+        basket = create_basket(owner=user, site=site, product_class=product_class)
     if not basket.id:
         basket.save()
     if shipping_method is None:
@@ -195,5 +200,5 @@ class EnterpriseOfferFactory(ConditionalOfferFactory):
     condition = factory.SubFactory(EnterpriseCustomerConditionFactory)
     max_basket_applications = 1
     offer_type = ConditionalOffer.SITE
-    priority = 10
+    priority = OFFER_PRIORITY_ENTERPRISE
     status = ConditionalOffer.OPEN

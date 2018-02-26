@@ -18,7 +18,6 @@ from threadlocals.threadlocals import get_current_request
 
 from ecommerce.core.utils import get_cache_key, log_message_and_raise_validation_error
 
-
 OFFER_PRIORITY_ENTERPRISE = 10
 OFFER_PRIORITY_VOUCHER = 20
 
@@ -56,10 +55,6 @@ class ConditionalOffer(AbstractConditionalOffer):
         super(ConditionalOffer, self).clean()  # pylint: disable=bad-super-call
 
     def clean_email_domains(self):
-        if self.email_domains == '':
-            log_message_and_raise_validation_error(
-                'Failed to create ConditionalOffer. ConditionalOffer email domains may not be an empty string.'
-            )
 
         if self.email_domains:
             if not isinstance(self.email_domains, basestring):

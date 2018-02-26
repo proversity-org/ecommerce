@@ -1,6 +1,7 @@
 import datetime
 import hashlib
 import urllib
+from decimal import Decimal
 
 import ddt
 import httpretty
@@ -28,6 +29,8 @@ from ecommerce.core.tests import toggle_switch
 from ecommerce.core.url_utils import get_lms_url
 from ecommerce.coupons.tests.mixins import CouponMixin, DiscoveryMockMixin
 from ecommerce.courses.tests.factories import CourseFactory
+from ecommerce.enterprise.tests.mixins import EnterpriseServiceMockMixin
+from ecommerce.entitlements.utils import create_or_update_course_entitlement
 from ecommerce.extensions.analytics.utils import translate_basket_line_for_segment
 from ecommerce.extensions.basket.utils import get_basket_switch_data
 from ecommerce.extensions.catalogue.tests.mixins import DiscoveryTestMixin
@@ -43,6 +46,8 @@ from ecommerce.tests.testcases import TestCase
 
 Applicator = get_class('offer.utils', 'Applicator')
 Basket = get_model('basket', 'Basket')
+BasketAttribute = get_model('basket', 'BasketAttribute')
+BasketAttributeType = get_model('basket', 'BasketAttributeType')
 Benefit = get_model('offer', 'Benefit')
 Catalog = get_model('catalogue', 'Catalog')
 Condition = get_model('offer', 'Condition')
@@ -58,6 +63,7 @@ VoucherApplication = get_model('voucher', 'VoucherApplication')
 VoucherRemoveView = get_class('basket.views', 'VoucherRemoveView')
 
 COUPON_CODE = 'COUPONTEST'
+BUNDLE = 'bundle_identifier'
 
 
 @ddt.ddt
@@ -183,7 +189,7 @@ class BasketSingleItemViewTests(CouponMixin, DiscoveryTestMixin, DiscoveryMockMi
         basket.add_product(product, 1)
         create_order(user=self.user, basket=basket)
         url = '{path}?sku={sku}'.format(path=self.path, sku=sku)
-        expected_content = 'You have already purchased {course} seat.'.format(course=product.course.name)
+        expected_content = 'You have already purchased {course} seat.'.format(course=product.title)
         response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context['error'], expected_content)
@@ -363,7 +369,8 @@ class BasketMultipleItemsViewTests(DiscoveryTestMixin, DiscoveryMockMixin, LmsAp
 
 @httpretty.activate
 @ddt.ddt
-class BasketSummaryViewTests(DiscoveryTestMixin, DiscoveryMockMixin, LmsApiMockMixin, ApiMockMixin, TestCase):
+class BasketSummaryViewTests(EnterpriseServiceMockMixin, DiscoveryTestMixin, DiscoveryMockMixin, LmsApiMockMixin,
+                             ApiMockMixin, TestCase):
     """ BasketSummaryView basket view tests. """
     path = reverse('basket:summary')
 
@@ -649,6 +656,14 @@ class BasketSummaryViewTests(DiscoveryTestMixin, DiscoveryMockMixin, LmsApiMockM
         self.assert_order_details_in_context(seat)
         self.assert_order_details_in_context(enrollment_code)
 
+    def test_order_details_entitlement_msg(self):
+        """Verify the order details message is displayed for course entitlements."""
+
+        product = create_or_update_course_entitlement(
+            'verified', 100, self.partner, 'foo-bar', 'Foo Bar Entitlement')
+
+        self.assert_order_details_in_context(product)
+
     @override_flag(CLIENT_SIDE_CHECKOUT_FLAG_NAME, active=True)
     @override_settings(PAYMENT_PROCESSORS=['ecommerce.extensions.payment.tests.processors.DummyProcessor'])
     def test_client_side_checkout(self):
@@ -734,6 +749,20 @@ class BasketSummaryViewTests(DiscoveryTestMixin, DiscoveryMockMixin, LmsApiMockM
             str(message),
             'Could not apply the code \'THISISACOUPONCODE\'; it requires data sharing consent.'
         )
+
+    @httpretty.activate
+    def test_free_basket_redirect(self):
+        """
+        Verify redirect to FreeCheckoutView when basket is free
+        and an Enterprise-related offer is applied.
+        """
+        self.course_run.create_or_update_seat('verified', True, Decimal(10), self.partner)
+        self.create_basket_and_add_product(self.course_run.seat_products[0])
+        self.prepare_enterprise_offer()
+
+        response = self.client.get(self.path)
+
+        self.assertRedirects(response, reverse('checkout:free-checkout'), fetch_redirect_response=False)
 
 
 @httpretty.activate
@@ -841,6 +870,12 @@ class VoucherAddViewTests(LmsApiMockMixin, TestCase):
         new_product = factories.ProductFactory(categories=[], stockrecords__partner__short_code='second')
         self.basket.add_product(product)
         self.basket.add_product(new_product)
+        BasketAttributeType.objects.get_or_create(name=BUNDLE)
+        BasketAttribute.objects.update_or_create(
+            basket=self.basket,
+            attribute_type=BasketAttributeType.objects.get(name=BUNDLE),
+            value_text='test_bundle'
+        )
         self.assert_form_valid_message("Coupon code '{code}' is not valid for this basket.".format(code=voucher.code))
 
     def test_form_valid_without_basket_id(self):

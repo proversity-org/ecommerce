@@ -228,7 +228,6 @@ MIDDLEWARE_CLASSES = (
     'ecommerce.extensions.basket.middleware.BasketMiddleware',
     'django.contrib.flatpages.middleware.FlatpageFallbackMiddleware',
     'social_django.middleware.SocialAuthExceptionMiddleware',
-    'simple_history.middleware.HistoryRequestMiddleware',
     'threadlocals.middleware.ThreadLocalMiddleware',
     'ecommerce.theming.middleware.CurrentSiteThemeMiddleware',
     'ecommerce.theming.middleware.ThemePreviewMiddleware',
@@ -252,7 +251,7 @@ PROVIDER_DATA_PROCESSING_TIMEOUT = 15  # Value is in seconds.
 CREDIT_PROVIDER_CACHE_TIMEOUT = 600
 
 # Enrollment API settings used for fetching information from LMS
-ENROLLMENT_API_CACHE_TIMEOUT = 3600  # Value is in seconds.
+ENROLLMENT_API_CACHE_TIMEOUT = 30  # Value is in seconds.
 # END URL CONFIGURATION
 
 VOUCHER_CACHE_TIMEOUT = 10  # Value is in seconds.
@@ -272,7 +271,6 @@ DJANGO_APPS = [
     'widget_tweaks',
     'compressor',
     'rest_framework',
-    'simple_history',
     'waffle',
     'django_filters',
     'release_util',
@@ -289,15 +287,10 @@ LOCAL_APPS = [
     'ecommerce.invoice',
     'ecommerce.programs',
     'ecommerce.referrals',
-
-    # Theming app for customizing visual and behavioral attributes of a site
     'ecommerce.theming',
-
-    # Sailthru email marketing integration
     'ecommerce.sailthru',
-
-    # Enterprise app for ecommerce
     'ecommerce.enterprise',
+    'ecommerce.management',
 ]
 
 # See: https://docs.djangoproject.com/en/dev/ref/settings/#installed-apps
@@ -577,7 +570,7 @@ CRISPY_TEMPLATE_PACK = 'bootstrap3'
 # URL for Enterprise service
 ENTERPRISE_SERVICE_URL = 'http://localhost:8000/enterprise/'
 # Cache enterprise response from Enterprise API.
-ENTERPRISE_API_CACHE_TIMEOUT = 3600  # Value is in seconds
+ENTERPRISE_API_CACHE_TIMEOUT = 300  # Value is in seconds
 
 # Name for waffle switch to use for enabling enterprise features on runtime.
 ENABLE_ENTERPRISE_ON_RUNTIME_SWITCH = 'enable_enterprise_on_runtime'

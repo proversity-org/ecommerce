@@ -34,9 +34,27 @@ def get_ecommerce_url(path=''):
     return site_configuration.build_ecommerce_url(path)
 
 
+def get_lms_courseware_url(course_run_id):
+    """
+    Return the courseware URL for the given course run.
+
+    Arguments:
+        course_run_id (string): The serialized course run ID.
+
+    Returns:
+        string: The courseware URL.
+    """
+    return get_lms_url('courses/{}/info'.format(course_run_id))
+
+
 def get_lms_dashboard_url():
     site_configuration = _get_site_configuration()
     return site_configuration.student_dashboard_url
+
+
+def get_lms_program_dashboard_url(uuid):
+    site_configuration = _get_site_configuration()
+    return site_configuration.build_program_dashboard_url(uuid)
 
 
 def get_lms_enrollment_api_url():

@@ -8,6 +8,7 @@ from oscar.core.loading import get_class, get_model
 from oscar.test.newfactories import BasketFactory
 
 from ecommerce.courses.tests.factories import CourseFactory
+from ecommerce.entitlements.utils import create_or_update_course_entitlement
 from ecommerce.extensions.catalogue.tests.mixins import DiscoveryTestMixin
 from ecommerce.extensions.fulfillment.status import ORDER
 from ecommerce.extensions.payment.tests.processors import DummyProcessor
@@ -16,6 +17,7 @@ from ecommerce.extensions.refund.tests.factories import RefundFactory
 from ecommerce.extensions.test.factories import create_order
 
 post_refund = get_class('refund.signals', 'post_refund')
+Option = get_model('catalogue', 'Option')
 Refund = get_model('refund', 'Refund')
 Source = get_model('payment', 'Source')
 SourceType = get_model('payment', 'SourceType')
@@ -37,7 +39,8 @@ class RefundTestMixin(DiscoveryTestMixin):
             credit_provider='HGW'
         )
 
-    def create_order(self, user=None, credit=False, multiple_lines=False, free=False, status=ORDER.COMPLETE):
+    def create_order(self, user=None, credit=False, multiple_lines=False, free=False,
+                     entitlement=False, status=ORDER.COMPLETE):
         user = user or self.user
         basket = BasketFactory(owner=user, site=self.site)
 
@@ -48,11 +51,18 @@ class RefundTestMixin(DiscoveryTestMixin):
             basket.add_product(self.honor_product)
         elif free:
             basket.add_product(self.honor_product)
+        elif entitlement:
+            self.course_entitlement = create_or_update_course_entitlement('verified', 100, self.partner, '111', 'Foo')
+            basket.add_product(self.course_entitlement)
         else:
             basket.add_product(self.verified_product)
 
         order = create_order(basket=basket, user=user)
         order.status = status
+        if entitlement:
+            entitlement_option = Option.objects.get(code='course_entitlement')
+            line = order.lines.first()
+            line.attributes.create(option=entitlement_option, value='111')
         order.save()
         return order
 
