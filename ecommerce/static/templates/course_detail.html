@@ -27,6 +27,10 @@
             <div class="course-subscription" style="display:inline"><%= course['is_subscription'] %></div>
         </div>
         <div class="info-item">
+            <div class="heading" style="display:inline"><%= gettext('Subscription Plan Name:') %></div>
+            <div class="course-subscription-plan-name" style="display:inline"><%= course['subscription_plan_name'] %></div>
+        </div>
+        <div class="info-item">
             <div class="heading" style="display:inline"><%= gettext('Course Type:') %></div>
             <div class="course-type" style="display:inline"><%= courseType %></div>
             <span class="help-block">

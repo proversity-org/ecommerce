@@ -50,6 +50,7 @@ class BasketSingleItemView(View):
     """
 
     def get(self, request):
+        print "BasketSingleItemView("
         partner = get_partner_for_site(request)
 
         sku = request.GET.get('sku', None)
@@ -62,6 +63,7 @@ class BasketSingleItemView(View):
 
         try:
             product = StockRecord.objects.get(partner=partner, partner_sku=sku).product
+
         except StockRecord.DoesNotExist:
             return HttpResponseBadRequest(_('SKU [{sku}] does not exist.').format(sku=sku))
 
@@ -91,6 +93,7 @@ class BasketSingleItemView(View):
         try:
             prepare_basket(request, [product], voucher)
         except AlreadyPlacedOrderException:
+            print "AMMAMMMMMM", product.course.is_subscription
             msg = _('You have already purchased {course} seat.').format(course=product.title)
             return render(request, 'edx/error.html', {'error': msg})
         url = add_utm_params_to_url(reverse('basket:summary'), self.request.GET.items())
@@ -104,6 +107,7 @@ class BasketMultipleItemsView(View):
     """
 
     def get(self, request):
+        print 'BasketMUltoItemView('
         partner = get_partner_for_site(request)
 
         skus = request.GET.getlist('sku')
@@ -113,6 +117,9 @@ class BasketMultipleItemsView(View):
             return HttpResponseBadRequest(_('No SKUs provided.'))
 
         products = Product.objects.filter(stockrecords__partner=partner, stockrecords__partner_sku__in=skus)
+        for product in products:
+            print "LALALALALAL", product.course.is_subscription
+            print "Subscription plan name",  product.course.subscription_plan_name
         if not products:
             return HttpResponseBadRequest(_('Products with SKU(s) [{skus}] do not exist.').format(skus=', '.join(skus)))
 
@@ -134,10 +141,13 @@ class BasketMultipleItemsView(View):
                 return code_redemption_redirect
 
         try:
+            print "I AM PREPARING THE BASKET"
             prepare_basket(request, products, voucher)
+
         except AlreadyPlacedOrderException:
             return render(request, 'edx/error.html', {'error': _('You have already purchased these products')})
         url = add_utm_params_to_url(reverse('basket:summary'), self.request.GET.items())
+        print "THE URL",  url
         return HttpResponseRedirect(url, status=303)
 
 
@@ -186,6 +196,7 @@ class BasketSummaryView(BasketView):
 
         try:
             course = get_course_info_from_catalog(self.request.site, product)
+            print "THE COURSE***********", course
             try:
                 image_url = course['image']['src']
             except (KeyError, TypeError):
@@ -401,7 +412,7 @@ class BasketSummaryView(BasketView):
             )
         except ValueError:
             total_benefit = None
-
+        print "formset lines data", formset
         context.update({
             'formset_lines_data': zip(formset, lines_data),
             'free_basket': context['order_total'].incl_tax == 0,
@@ -490,6 +501,7 @@ class VoucherAddView(BaseVoucherAddView):  # pylint: disable=function-redefined
             )
 
     def form_valid(self, form):
+        print "IS THE FORM VALID???"
         code = form.cleaned_data['code']
         if self.request.basket.is_empty:
             return redirect_to_referrer(self.request, 'basket:summary')
@@ -515,6 +527,7 @@ class VoucherAddView(BaseVoucherAddView):  # pylint: disable=function-redefined
 
                 offer = voucher.offers.first()
                 product = stock_record.product
+                
                 email_confirmation_response = render_email_confirmation_if_required(self.request, offer, product)
                 if email_confirmation_response:
                     return email_confirmation_response

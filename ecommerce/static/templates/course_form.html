@@ -115,6 +115,21 @@
     </div>
 </div>
 
+
+<div class="fields">
+    <div class="form-group subscription-plan-name">
+        <!-- <label class="hd-4"><%- gettext('Subscription plan name') %></label> -->
+        <label class="hd-4" for="subscription_plan_name"><%= gettext('Subscription Plan Name') %></label>
+        <input type="text" class="form-control" name="subscription_plan_name" placeholder="e.g. edX Demonstration Course">   
+            <!-- NOTE: This help-block is here for validation messages. -->
+        <span id="subscriptionPlanHelpBlock" class="help-block">
+            <%- gettext('Subscription plan name') %>
+        </span>
+    </div>
+</div>
+
+
+
 <div class="form-actions">
     <button type="submit" class="btn btn-primary"><%= gettext(editing ? 'Save Changes' : 'Create Course') %></button>
     <a class="btn btn-default" href="/courses/<% if(id){ print(id + '/'); } %>"><%= gettext('Cancel') %></a>

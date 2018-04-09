@@ -30,7 +30,9 @@ define([
                     type: course.get('type'),
                     name: course.get('name'),
                     last_edited: moment(course.get('last_edited')).format('MMMM DD, YYYY, h:mm A'),
-                    is_subscription: course.get('is_subscription')
+                    is_subscription: course.get('is_subscription'),
+                    subscription_plan_name: course.subscription_plan_name
+
                 };
             },
 
@@ -79,6 +81,10 @@ define([
                             {
                                 title: gettext('Subscription'),
                                 data: 'is_subscription'
+                            },
+                            {
+                                title: gettext('Subscription Plan Name'),
+                                data: 'subscription_plan_name'
                             },
                             {
                                 title: gettext('Last Edited'),

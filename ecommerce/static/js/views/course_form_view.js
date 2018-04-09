@@ -128,6 +128,12 @@ define([
                         validate: false
                     },
                     onSet: 'cleanBooleanValue'
+                },
+                'input[name=subscription_plan_name]': {
+                    observe: 'subscription_plan_name',
+                    setOptions: {
+                        validate: false
+                    }
                 }
             },
 

@@ -159,6 +159,7 @@ class BasketCreateView(EdxOrderPlacementMixin, generics.CreateAPIView):
                     if sku:
                         try:
                             product = data_api.get_product(sku)
+                            print product
                         except api_exceptions.ProductNotFoundError as error:
                             return self._report_bad_request(
                                 error.message,
@@ -211,6 +212,7 @@ class BasketCreateView(EdxOrderPlacementMixin, generics.CreateAPIView):
 
             try:
                 response_data = self._checkout(basket, payment_processor(request.site), request)
+                print "payment_____processor", payment_processor(request.site)
             except Exception as ex:  # pylint: disable=broad-except
                 basket.delete()
                 logger.exception('Failed to initiate checkout for Basket [%d]. The basket has been deleted.', basket_id)
@@ -257,7 +259,10 @@ class BasketCreateView(EdxOrderPlacementMixin, generics.CreateAPIView):
             # Note: Our order serializer could be used here, but in an effort to pare down the information
             # returned by this endpoint, simply returning the order number will suffice for now.
             response_data['order'] = {'number': order.number}
+
+        
         else:
+            print "&&&&&&&&&&&&&&&&&&&&&&&&",  type(payment_processor), payment_processor
             parameters = payment_processor.get_transaction_parameters(basket, request=self.request)
             payment_page_url = parameters.pop('payment_page_url')
 

@@ -39,6 +39,7 @@ define([
                 verification_deadline: null,
                 honor_mode: null,
                 is_subscription: false,
+                subscription_plan_name: null,
             },
 
             validation: {
@@ -57,6 +58,10 @@ define([
                 is_subscription: {
                     required: false,
                     msg: gettext('Select if course is a subscription product.')
+                },
+                subscription_plan_name: {
+                    required: false,
+                    msg: gettext('Select a subscription product name.')
                 },
                 honor_mode: {
                     required: function() {
@@ -101,7 +106,8 @@ define([
                 type: gettext('Course Type'),
                 verification_deadline: gettext('Verification Deadline'),
                 honor_mode: gettext('Include Honor Seat'),
-                is_subscription: gettext('Course is a subscription product')
+                is_subscription: gettext('Course is a subscription product'),
+                subscription_plan_name: gettext('Subscription product name')
             },
 
             relations: [{
@@ -317,6 +323,7 @@ define([
                 var verificationDeadline,
                     honorMode,
                     is_subscription,
+                    subscription_plan_name,
                     honorSeatClass,
                     honorSeat,
                     products,
@@ -326,7 +333,8 @@ define([
                         name: this.get('name'),
                         verification_deadline: null,
                         create_or_activate_enrollment_code: this.get('has_active_bulk_enrollment_code') || false,
-                        is_subscription: this.get('is_subscription')
+                        is_subscription: this.get('is_subscription'),
+                        subscription_plan_name: this.get('subscription_plan_name')
                     };
                   
                 if (this.includeHonorMode()) {

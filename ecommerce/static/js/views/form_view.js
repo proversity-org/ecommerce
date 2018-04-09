@@ -128,8 +128,10 @@ define([
 
                 e.preventDefault();
                 console.log("SUBMITTING FORM")
+                console.log(this.model.isValid(true))
                 // Validate the input and display a message, if necessary.
                 if (!this.model.isValid(true)) {
+                    console.log("its not true")
                     AlertUtils.clearAlerts(self);
                     AlertUtils.renderAlert('danger', '', gettext('Please complete all required fields.'), self);
                     return undefined;
@@ -156,6 +158,7 @@ define([
                 };
 
                 onSaveError = function(model, response) {
+                    console.log(response)
                     var message = gettext('An error occurred while saving the data.');
 
                     if (response.responseJSON && response.responseJSON.error) {
@@ -165,6 +168,7 @@ define([
                         console.error(message); // eslint-disable-line no-console
                     } else {
                         // Log the error to the console for debugging purposes
+
                         console.error(response.responseText); // eslint-disable-line no-console
                     }
 
@@ -188,7 +192,9 @@ define([
                         }
                     );
                 } else {
+                     console.log('trying to save');
                     this.model.save(
+
                         null,
                         {
                             complete: onSaveComplete,

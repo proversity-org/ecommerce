@@ -365,8 +365,8 @@ class SiteConfiguration(models.Model):
             str: JWT access token
         """
         key = 'siteconfiguration_access_token_{}'.format(self.id)
-        access_token = cache.get(key)
-
+        access_token = None
+        print "HHHHHHHHHHHHHHHHHHHHHHHHH"
         # pylint: disable=unsubscriptable-object
         if not access_token:
             url = '{root}/access_token'.format(root=self.oauth2_provider_url)
@@ -379,7 +379,7 @@ class SiteConfiguration(models.Model):
 
             expires = (expiration_datetime - datetime.datetime.utcnow()).seconds
             cache.set(key, access_token, expires)
-
+            print "HHHHHHHHHHHHHHHHHHHHHHHHH", access_token
         return access_token
 
     @cached_property
@@ -447,7 +447,8 @@ class User(AbstractUser):
     """Custom user model for use with OIDC."""
 
     full_name = models.CharField(_('Full Name'), max_length=255, blank=True, null=True)
-
+    meta_data = JSONField(blank=True, null=True)
+    
     @property
     def access_token(self):
         try:

@@ -65,7 +65,47 @@ class Stripe(ApplePayMixin, BaseClientSidePaymentProcessor):
         """
 
         # NOTE: In the future we may want to get/create a Customer. See https://stripe.com/docs/api#customers.
+
+        
+        print "I AM NOW IN THE  HANDLE PROCESSOR RESPONSE"
+        print "BASKET", basket.all_lines()[0].product.course.is_subscription
+        
+        print "iS SUB", basket.all_lines()[0].product.course.subscription_plan_name
+        print "I AM TRYING TO CHARGE STRIPE"
+        user = basket.owner
+        print "userrrr", user, type(user)
+        
+       
+        if basket.all_lines()[0].product.course.is_subscription is True:
+            try:
+                print "CREATTTING CUSTOMER"
+                plan_name = basket.all_lines()[0].product.course.subscription_plan_name
+                customer = stripe.Customer.create(
+                    source= token,
+                    plan=plan_name,
+                ) 
+                # ='cus_CeFEsrGGzgQXZ2'
+                subscription = stripe.Subscription.create(
+                   customer=customer.id,
+                   items=[{'plan': plan_name}],
+                )
+
+                user.meta_data = { 
+                    "stripe": {
+                        "customer_id": customer.id,
+                        "subscription_id": subscription.id
+                    }
+                }
+                user.save()
+
+            except stripe.error as ex:
+                log.warn('ERRROR stripe customer creation')
+    
         try:
+            print "I AM TRYING TO CHARGE STRIPE"      
+            # THIS IS TO MAKE IT FAIL ON PURPOSE
+            print course.subscription_plan_name
+        
             charge = stripe.Charge.create(
                 amount=self._get_basket_amount(basket),
                 currency=currency,

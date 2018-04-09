@@ -130,6 +130,7 @@ define([
                     verification_deadline: null,
                     honor_mode: false,
                     is_subscription: false,
+                    subscription_plan_name: null,
                     type: 'credit',
                     products_url: 'http://ecommerce.local:8002/api/v2/courses/edX/DemoX/Demo_Course/products/',
                     last_edited: '2015-07-27T00:27:23Z',

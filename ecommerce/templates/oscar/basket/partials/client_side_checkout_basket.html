@@ -91,6 +91,7 @@
                             <div class="use-voucher">
                                 <label for="id_code">{% trans "Add coupon code" %} <span>{% trans "(optional)" %}</span></label>
                                 {% include 'basket/partials/add_voucher_form.html' %}
+                                
                             </div>
                         {% endif %}
                     {% endif %}
@@ -114,7 +115,16 @@
 <form id="paymentForm" class="payment-form form-horizontal" method="post" aria-live="polite">
     {% csrf_token %}
 
+
+
     <div id="payment-information" class="col-sm-7">
+      <div id="payment-request-button"
+          data-track-type="click"
+          data-track-event="edx.bi.ecommerce.basket.payment_selected"
+          data-track-category="checkout"
+          data-track-payment-method="Stripe Payment Request">
+       <!-- A Stripe Element will be inserted here. -->
+     </div>
         {% if not free_basket %}
         {% if paypal_enabled %}
         <div id="payment-method-information" class="placeholder row">
@@ -143,13 +153,6 @@
                               class="payment-button apple-pay-button apple-pay-button-black"
                               title="{% trans "Pay with Apple Pay" %}" type="button">
                       </button>
-                    <div id="payment-request-button"
-                         data-track-type="click"
-                         data-track-event="edx.bi.ecommerce.basket.payment_selected"
-                         data-track-category="checkout"
-                         data-track-payment-method="Stripe Payment Request">
-                      <!-- A Stripe Element will be inserted here. -->
-                    </div>
                   </div>
             </div>
         </div>
@@ -233,6 +236,7 @@
                         {% trans "Place Order" %}
                     </a>
                 {% else %}
+                    <p>{{client_side_payment_processor.NAME}}</p>
                     <button id="payment-button" type="submit" class="btn btn-primary btn-large col-sm-12 col-xs-12"
                             data-track-type="click"
                             data-track-event="edx.bi.ecommerce.basket.payment_selected"

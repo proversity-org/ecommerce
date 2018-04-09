@@ -42,6 +42,8 @@ class Course(models.Model):
     modified = models.DateTimeField(null=True, auto_now=True)
     thumbnail_url = models.URLField(null=True, blank=True)
     is_subscription = models.BooleanField(default=0)
+    subscription_plan_name = models.CharField(max_length=255, default='')
+
 
     def __unicode__(self):
         return unicode(self.id)

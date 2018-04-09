@@ -287,6 +287,7 @@ class CourseSerializer(serializers.HyperlinkedModelSerializer):
     last_edited = serializers.SerializerMethodField()
     has_active_bulk_enrollment_code = serializers.SerializerMethodField()
     is_subscription = serializers.BooleanField()
+    subscription_plan_name = serializers.CharField(max_length=255)
 
     def __init__(self, *args, **kwargs):
         super(CourseSerializer, self).__init__(*args, **kwargs)
@@ -311,7 +312,10 @@ class CourseSerializer(serializers.HyperlinkedModelSerializer):
         model = Course
         fields = (
             'id', 'url', 'name', 'verification_deadline', 'type',
-            'products_url', 'last_edited', 'products', 'has_active_bulk_enrollment_code', 'is_subscription')
+            'products_url', 'last_edited', 'products',
+            'has_active_bulk_enrollment_code', 'is_subscription', 
+            'subscription_plan_name'
+        )
         read_only_fields = ('type', 'products', 'site')
         extra_kwargs = {
             'url': {'view_name': COURSE_DETAIL_VIEW}
@@ -331,6 +335,8 @@ class AtomicPublicationSerializer(serializers.Serializer):  # pylint: disable=ab
     products = serializers.ListField()
     create_or_activate_enrollment_code = serializers.BooleanField()
     is_subscription = serializers.BooleanField()
+    subscription_plan_name = serializers.CharField(max_length=255)
+    print "I AM ATOMIC PUBLICAT"
 
     def __init__(self, *args, **kwargs):
         super(AtomicPublicationSerializer, self).__init__(*args, **kwargs)
@@ -372,6 +378,7 @@ class AtomicPublicationSerializer(serializers.Serializer):  # pylint: disable=ab
             tuple: A Boolean indicating whether the Course was created, an Exception,
                 if one was raised (else None), and a message for the user, if necessary (else None).
         """
+        print self.validated_data
         course_id = self.validated_data['id']
         course_name = self.validated_data['name']
         course_verification_deadline = self.validated_data.get('verification_deadline')
@@ -379,7 +386,9 @@ class AtomicPublicationSerializer(serializers.Serializer):  # pylint: disable=ab
         products = self.validated_data['products']
         partner = self.get_partner()
         is_subscription = self.validated_data['is_subscription']
-
+        print self.validated_data
+        subscription_plan_name = self.validated_data['subscription_plan_name']
+        print "I AM HERE NOWWW", subscription_plan_name
         try:
             if not waffle.switch_is_active('publish_course_modes_to_lms'):
                 message = _(
@@ -397,6 +406,8 @@ class AtomicPublicationSerializer(serializers.Serializer):  # pylint: disable=ab
                 course.name = course_name
                 course.verification_deadline = course_verification_deadline
                 course.is_subscription = is_subscription
+                course.subscription_plan_name = subscription_plan_name
+                
                 course.save()
 
                 create_enrollment_code = False
@@ -432,6 +443,7 @@ class AtomicPublicationSerializer(serializers.Serializer):  # pylint: disable=ab
                     course.toggle_enrollment_code_status(is_active=create_enrollment_code)
 
                 resp_message = course.publish_to_lms()
+                print resp_message
                 published = (resp_message is None)
 
                 if published:
