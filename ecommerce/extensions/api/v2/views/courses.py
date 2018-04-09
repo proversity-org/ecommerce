@@ -49,13 +49,11 @@ class CourseViewSet(NonDestroyableModelViewSet):
         return super(CourseViewSet, self).list(request, *args, **kwargs)
 
     def create(self, request, *args, **kwargs):
-        print "IIII AMM CREATING THE COURSES VIEW"
         course = Course.objects.create(
             id=request.data['id'],
             name=request.data['name'],
             site=request.site
         )
-        print data
         data = serializers.CourseSerializer(course, context={'request': request}).data
         return Response(data, status=status.HTTP_201_CREATED)
 

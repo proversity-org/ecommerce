@@ -36,7 +36,6 @@ class AtomicPublicationView(generics.CreateAPIView, generics.UpdateAPIView):
         is_valid = serializer.is_valid(raise_exception=True)
        
         if is_valid:
-            print "SVAVAVAVAV", serializer.save()
             created, failure, message = serializer.save()
             if failure:
 

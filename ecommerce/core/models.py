@@ -365,8 +365,8 @@ class SiteConfiguration(models.Model):
             str: JWT access token
         """
         key = 'siteconfiguration_access_token_{}'.format(self.id)
+        #Setting access token to None for devstack
         access_token = None
-        print "HHHHHHHHHHHHHHHHHHHHHHHHH"
         # pylint: disable=unsubscriptable-object
         if not access_token:
             url = '{root}/access_token'.format(root=self.oauth2_provider_url)
@@ -379,7 +379,6 @@ class SiteConfiguration(models.Model):
 
             expires = (expiration_datetime - datetime.datetime.utcnow()).seconds
             cache.set(key, access_token, expires)
-            print "HHHHHHHHHHHHHHHHHHHHHHHHH", access_token
         return access_token
 
     @cached_property

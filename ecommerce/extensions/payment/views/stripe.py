@@ -36,11 +36,6 @@ class StripeSubmitView(EdxOrderPlacementMixin, BasePaymentSubmitView):
         basket = form_data['basket']
         token = form_data['stripe_token']
         order_number = basket.order_number
-        print "I AM NOW IN THE FORM.........."
-    
-        print "form_data", form
-        
-
         try:
             billing_address = self.payment_processor.get_address_from_token(token)
         except Exception:  # pylint: disable=broad-except
@@ -53,7 +48,7 @@ class StripeSubmitView(EdxOrderPlacementMixin, BasePaymentSubmitView):
 
         try:
             # handle_processor_response
-            print self.handle_payment(token, basket)
+            self.handle_payment(token, basket)
         except Exception:  # pylint: disable=broad-except
             logger.exception('An error occurred while processing the Stripe payment for basket [%d].', basket.id)
             return JsonResponse({}, status=400)

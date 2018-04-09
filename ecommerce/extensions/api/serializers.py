@@ -336,7 +336,6 @@ class AtomicPublicationSerializer(serializers.Serializer):  # pylint: disable=ab
     create_or_activate_enrollment_code = serializers.BooleanField()
     is_subscription = serializers.BooleanField()
     subscription_plan_name = serializers.CharField(max_length=255)
-    print "I AM ATOMIC PUBLICAT"
 
     def __init__(self, *args, **kwargs):
         super(AtomicPublicationSerializer, self).__init__(*args, **kwargs)
@@ -378,7 +377,7 @@ class AtomicPublicationSerializer(serializers.Serializer):  # pylint: disable=ab
             tuple: A Boolean indicating whether the Course was created, an Exception,
                 if one was raised (else None), and a message for the user, if necessary (else None).
         """
-        print self.validated_data
+        
         course_id = self.validated_data['id']
         course_name = self.validated_data['name']
         course_verification_deadline = self.validated_data.get('verification_deadline')
@@ -386,9 +385,7 @@ class AtomicPublicationSerializer(serializers.Serializer):  # pylint: disable=ab
         products = self.validated_data['products']
         partner = self.get_partner()
         is_subscription = self.validated_data['is_subscription']
-        print self.validated_data
         subscription_plan_name = self.validated_data['subscription_plan_name']
-        print "I AM HERE NOWWW", subscription_plan_name
         try:
             if not waffle.switch_is_active('publish_course_modes_to_lms'):
                 message = _(
@@ -443,7 +440,6 @@ class AtomicPublicationSerializer(serializers.Serializer):  # pylint: disable=ab
                     course.toggle_enrollment_code_status(is_active=create_enrollment_code)
 
                 resp_message = course.publish_to_lms()
-                print resp_message
                 published = (resp_message is None)
 
                 if published:

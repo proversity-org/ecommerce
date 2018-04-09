@@ -88,14 +88,10 @@ def prepare_basket(request, products, voucher=None):
 
     is_multi_product_basket = True if len(products) > 1 else False
     for product in products:
-        print "I AM IN THE UTILS CODE"
         if product.is_enrollment_code_product or \
                 not UserAlreadyPlacedOrder.user_already_placed_order(user=request.user,
                                                                      product=product, site=request.site):
-            
-
             basket.add_product(product, 1)
-
             # Call signal handler to notify listeners that something has been added to the basket
             basket_addition.send(sender=basket_addition, product=product, user=request.user, request=request,
                                  basket=basket, is_multi_product_basket=is_multi_product_basket)
@@ -119,7 +115,6 @@ def prepare_basket(request, products, voucher=None):
         logger.info('Applied Voucher [%s] to basket [%s].', voucher.code, basket.id)
 
     attribute_cookie_data(basket, request)
-    print "THEEEEE BASKET", basket.all_lines()[0].product, products
     return basket
 
 
