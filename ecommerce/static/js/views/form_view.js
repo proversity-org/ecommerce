@@ -127,11 +127,8 @@ define([
                     onSaveError;
 
                 e.preventDefault();
-                console.log("SUBMITTING FORM")
-                console.log(this.model.isValid(true))
                 // Validate the input and display a message, if necessary.
                 if (!this.model.isValid(true)) {
-                    console.log("its not true")
                     AlertUtils.clearAlerts(self);
                     AlertUtils.renderAlert('danger', '', gettext('Please complete all required fields.'), self);
                     return undefined;

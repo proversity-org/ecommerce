@@ -31,7 +31,7 @@ define([
                     name: course.get('name'),
                     last_edited: moment(course.get('last_edited')).format('MMMM DD, YYYY, h:mm A'),
                     is_subscription: course.get('is_subscription'),
-                    subscription_plan_name: course.subscription_plan_name
+                    subscription_plan_name: course.get('subscription_plan_name')
 
                 };
             },
