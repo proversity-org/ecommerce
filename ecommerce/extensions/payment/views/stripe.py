@@ -1,6 +1,13 @@
 import logging
+import stripe
 
 from django.http import JsonResponse
+from django.views.decorators.http import require_POST
+from django.views.decorators.csrf import ensure_csrf_cookie
+from ecommerce.core.models import User
+from django.conf import settings
+
+
 from oscar.core.loading import get_class, get_model
 
 from ecommerce.extensions.checkout.mixins import EdxOrderPlacementMixin

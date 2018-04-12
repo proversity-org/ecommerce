@@ -17,7 +17,7 @@ from ecommerce.core.url_utils import get_lms_dashboard_url
 from ecommerce.core.views import LogoutView
 from ecommerce.extensions.payment.views.apple_pay import ApplePayMerchantDomainAssociationView
 from ecommerce.extensions.urls import urlpatterns as extensions_patterns
-
+import subscription
 
 def handler403(_):
     """Redirect unauthorized users to the LMS student dashboard.
@@ -53,6 +53,7 @@ WELL_KNOWN_URLS = [
 urlpatterns = AUTH_URLS + WELL_KNOWN_URLS + [
     url(r'^admin/', include(admin.site.urls)),
     url(r'^auto_auth/$', core_views.AutoAuth.as_view(), name='auto_auth'),
+     url(r'^unsubscribe$', subscription.unsubscribe, name='unsubscribe'),
     url(r'^api-auth/', include(AUTH_URLS, namespace='rest_framework')),
     url(r'^api-docs/', include_docs_urls(title='Ecommerce API')),
     url(r'^courses/', include('ecommerce.courses.urls', namespace='courses')),

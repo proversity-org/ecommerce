@@ -61,6 +61,8 @@ class LMSPublisher(object):
         error_message = _('Failed to publish commerce data for {course_id} to LMS.').format(course_id=course_id)
 
         name = course.name
+        is_subscription = course.is_subscription
+        subscription_plan_name = course.subscription_plan_name
         verification_deadline = self.get_course_verification_deadline(course)
         modes = [self.serialize_seat_for_commerce_api(seat) for seat in course.seat_products]
 
@@ -96,6 +98,8 @@ class LMSPublisher(object):
                 'name': name,
                 'verification_deadline': verification_deadline,
                 'modes': modes,
+                'is_subscription': is_subscription,
+                'subscription_plan_name': subscription_plan_name
             }
 
             commerce_api_client = course.site.siteconfiguration.commerce_api_client

@@ -3,6 +3,13 @@ from __future__ import absolute_import, unicode_literals
 
 import logging
 
+
+from django.http import JsonResponse
+from django.views.decorators.http import require_POST
+from django.views.decorators.csrf import ensure_csrf_cookie
+from ecommerce.core.models import User
+from django.conf import settings
+
 import stripe
 from oscar.apps.payment.exceptions import GatewayError, TransactionDeclined
 from oscar.core.loading import get_model
@@ -72,7 +79,6 @@ class Stripe(ApplePayMixin, BaseClientSidePaymentProcessor):
                 plan_name = basket.all_lines()[0].product.course.subscription_plan_name
                 customer = stripe.Customer.create(
                     source= token,
-                    plan=plan_name,
                 ) 
                 subscription = stripe.Subscription.create(
                    customer=customer.id,
@@ -86,44 +92,50 @@ class Stripe(ApplePayMixin, BaseClientSidePaymentProcessor):
                 }
                 user.save()
 
-            except stripe.error as ex:
-                log.warn('ERRROR stripe customer creation')
-    
-        try:      
-            # THIS IS TO MAKE IT FAIL ON PURPOSE
-            print course.subscription_plan_name
-            charge = stripe.Charge.create(
-                amount=self._get_basket_amount(basket),
-                currency=currency,
-                source=token,
-                description=order_number,
-                metadata={'order_number': order_number}
-            )
-            transaction_id = charge.id
 
-            # NOTE: Charge objects subclass the dict class so there is no need to do any data transformation
-            # before storing the response in the database.
-            self.record_processor_response(charge, transaction_id=transaction_id, basket=basket)
-            logger.info('Successfully created Stripe charge [%s] for basket [%d].', transaction_id, basket.id)
-        except stripe.error.CardError as ex:
-            msg = 'Stripe payment for basket [%d] declined with HTTP status [%d]'
-            body = ex.json_body
-
-            logger.exception(msg + ': %s', basket.id, ex.http_status, body)
-            self.record_processor_response(body, basket=basket)
-            raise TransactionDeclined(msg, basket.id, ex.http_status)
+                self.record_processor_response(subscription, transaction_id=subscription.id, basket=basket)
+            except stripe.error.CardError as ex:
+                msg = 'Stripe subscription for basket [%d] declined with HTTP status [%d]'
+                body = ex.json_body
+                logger.exception(msg + ': %s', basket.id, ex.http_status, body)
+                self.record_processor_response(body, basket=basket)
+                raise TransactionDeclined(msg, basket.id, ex.http_status)
+        
+        elif basket.all_lines()[0].product.course.is_subscription is False:
+            try:      
+                charge = stripe.Charge.create(
+                    amount=self._get_basket_amount(basket),
+                    currency=currency,
+                    source=token,
+                    description=order_number,
+                    metadata={'order_number': order_number}
+                )
+                transaction_id = charge.id
+                # NOTE: Charge objects subclass the dict class so there is no need to do any data transformation
+                # before storing the response in the database.
+                self.record_processor_response(charge, transaction_id=transaction_id, basket=basket)
+                logger.info('Successfully created Stripe charge [%s] for basket [%d].', transaction_id, basket.id)
+            except stripe.error.CardError as ex:
+                msg = 'Stripe payment for basket [%d] declined with HTTP status [%d]'
+                body = ex.json_body
+                logger.exception(msg + ': %s', basket.id, ex.http_status, body)
+                self.record_processor_response(body, basket=basket)
+                raise TransactionDeclined(msg, basket.id, ex.http_status)
 
         total = basket.total_incl_tax
         card_number = charge.source.last4
         card_type = STRIPE_CARD_TYPE_MAP.get(charge.source.brand)
 
-        return HandledProcessorResponse(
-            transaction_id=transaction_id,
-            total=total,
-            currency=currency,
-            card_number=card_number,
-            card_type=card_type
-        )
+        # return HandledProcessorResponse(
+        #     transaction_id=transaction_id,
+        #     total=total,
+        #     currency=currency,
+        #     card_number=card_number,
+        #     card_type=card_type
+        # )
+
+        return JSONResponse(status=200)
+ 
 
     def issue_credit(self, order_number, basket, reference_number, amount, currency):
         try:
