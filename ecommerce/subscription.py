@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 def unsubscribe(request):
     """
     unsubscribe from a course  
-    
+
     """
     NAME = 'stripe'
     partner_short_code = 'EDX'
@@ -36,6 +36,6 @@ def unsubscribe(request):
         return JsonResponse({'Sunscription cancelled for user': username}, status=200)
     except Exception, e:
         logger.error(e)
-        #JsonResponse({"error": e}, status=400)
-        return JsonResponse({"error": str(e)}, status=500)
+       
+        return JsonResponse({"error": str(e)}, status=400)
        

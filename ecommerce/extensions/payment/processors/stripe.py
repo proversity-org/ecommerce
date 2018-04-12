@@ -3,7 +3,7 @@ from __future__ import absolute_import, unicode_literals
 
 import logging
 
-
+import json
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 from django.views.decorators.csrf import ensure_csrf_cookie
@@ -13,6 +13,9 @@ from django.conf import settings
 import stripe
 from oscar.apps.payment.exceptions import GatewayError, TransactionDeclined
 from oscar.core.loading import get_model
+
+
+from django.http import JsonResponse
 
 from ecommerce.extensions.payment.constants import STRIPE_CARD_TYPE_MAP
 from ecommerce.extensions.payment.processors import (
@@ -91,9 +94,14 @@ class Stripe(ApplePayMixin, BaseClientSidePaymentProcessor):
                     }
                 }
                 user.save()
+                print type(subscription)
+                transaction_id=subscription.id
+                subscription_json = json.dumps(subscription, sort_keys=True, indent=2)
+                subscription_dict = json.loads(subscription_json)
+                card_number = '' #subscription.source.last4
+                card_type = '' #STRIPE_CARD_TYPE_MAP.get(subscription.source.brand)
 
-
-                self.record_processor_response(subscription, transaction_id=subscription.id, basket=basket)
+                self.record_processor_response(subscription_json, transaction_id=str(subscription.id), basket=basket)
             except stripe.error.CardError as ex:
                 msg = 'Stripe subscription for basket [%d] declined with HTTP status [%d]'
                 body = ex.json_body
@@ -111,6 +119,9 @@ class Stripe(ApplePayMixin, BaseClientSidePaymentProcessor):
                     metadata={'order_number': order_number}
                 )
                 transaction_id = charge.id
+                card_number = charge.source.last4
+                card_type = STRIPE_CARD_TYPE_MAP.get(charge.source.brand)
+
                 # NOTE: Charge objects subclass the dict class so there is no need to do any data transformation
                 # before storing the response in the database.
                 self.record_processor_response(charge, transaction_id=transaction_id, basket=basket)
@@ -123,18 +134,16 @@ class Stripe(ApplePayMixin, BaseClientSidePaymentProcessor):
                 raise TransactionDeclined(msg, basket.id, ex.http_status)
 
         total = basket.total_incl_tax
-        card_number = charge.source.last4
-        card_type = STRIPE_CARD_TYPE_MAP.get(charge.source.brand)
+        
+        return HandledProcessorResponse(
+            transaction_id=transaction_id,
+            total=total,
+            currency=currency,
+            card_number=card_number,
+            card_type=card_type
+        )
 
-        # return HandledProcessorResponse(
-        #     transaction_id=transaction_id,
-        #     total=total,
-        #     currency=currency,
-        #     card_number=card_number,
-        #     card_type=card_type
-        # )
-
-        return JSONResponse(status=200)
+        #return JsonResponse({'status': 'status'}, status=200)
  
 
     def issue_credit(self, order_number, basket, reference_number, amount, currency):
