@@ -121,7 +121,6 @@ class Stripe(ApplePayMixin, BaseClientSidePaymentProcessor):
                 transaction_id = charge.id
                 card_number = charge.source.last4
                 card_type = STRIPE_CARD_TYPE_MAP.get(charge.source.brand)
-
                 # NOTE: Charge objects subclass the dict class so there is no need to do any data transformation
                 # before storing the response in the database.
                 self.record_processor_response(charge, transaction_id=transaction_id, basket=basket)
