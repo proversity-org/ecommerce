@@ -376,7 +376,6 @@ class AtomicPublicationSerializer(serializers.Serializer):  # pylint: disable=ab
             tuple: A Boolean indicating whether the Course was created, an Exception,
                 if one was raised (else None), and a message for the user, if necessary (else None).
         """
-        
         course_id = self.validated_data['id']
         course_name = self.validated_data['name']
         course_verification_deadline = self.validated_data.get('verification_deadline')

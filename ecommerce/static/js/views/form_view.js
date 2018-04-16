@@ -155,7 +155,6 @@ define([
                 };
 
                 onSaveError = function(model, response) {
-                    console.log(response)
                     var message = gettext('An error occurred while saving the data.');
 
                     if (response.responseJSON && response.responseJSON.error) {
@@ -168,7 +167,6 @@ define([
 
                         console.error(response.responseText); // eslint-disable-line no-console
                     }
-
                     AlertUtils.clearAlerts(self);
                     AlertUtils.renderAlert('danger', gettext('Error!'), message, self);
                 };
@@ -189,9 +187,7 @@ define([
                         }
                     );
                 } else {
-                     console.log('trying to save');
                     this.model.save(
-
                         null,
                         {
                             complete: onSaveComplete,

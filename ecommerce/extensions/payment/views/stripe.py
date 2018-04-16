@@ -1,5 +1,4 @@
 import logging
-import stripe
 
 from django.http import JsonResponse
 from oscar.core.loading import get_class, get_model
