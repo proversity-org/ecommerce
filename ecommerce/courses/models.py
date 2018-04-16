@@ -44,7 +44,6 @@ class Course(models.Model):
     is_subscription = models.BooleanField(default=0)
     subscription_plan_name = models.CharField(max_length=255, default='')
 
-
     def __unicode__(self):
         return unicode(self.id)
 

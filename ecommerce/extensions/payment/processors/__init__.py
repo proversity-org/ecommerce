@@ -78,7 +78,7 @@ class BasePaymentProcessor(object):  # pragma: no cover
         Raises:
             KeyError: If no settings found for this payment processor
         """
-        partner_short_code = 'EDX'
+        partner_short_code = self.site.siteconfiguration.partner.short_code
         return settings.PAYMENT_PROCESSOR_CONFIG[partner_short_code.lower()][self.NAME.lower()]
 
     @property

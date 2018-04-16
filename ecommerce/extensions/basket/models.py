@@ -64,7 +64,6 @@ class Basket(AbstractBasket):
         Performs AbstractBasket add_product method and fires Google Analytics 'Product Added' event.
         """
         line, created = super(Basket, self).add_product(product, quantity, options)  # pylint: disable=bad-super-call
-        
         # Do not fire events for free items. The volume we see for edX.org leads to a dramatic increase in CPU
         # usage. Given that orders for free items are ignored, there is no need for these events.
         if line.stockrecord.price_excl_tax > 0:

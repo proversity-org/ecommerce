@@ -50,6 +50,7 @@ class BasketSingleItemView(View):
     """
 
     def get(self, request):
+
         partner = get_partner_for_site(request)
         sku = request.GET.get('sku', None)
         code = request.GET.get('code', None)
@@ -61,7 +62,6 @@ class BasketSingleItemView(View):
 
         try:
             product = StockRecord.objects.get(partner=partner, partner_sku=sku).product
-
         except StockRecord.DoesNotExist:
             return HttpResponseBadRequest(_('SKU [{sku}] does not exist.').format(sku=sku))
 
@@ -135,7 +135,6 @@ class BasketMultipleItemsView(View):
 
         try:
             prepare_basket(request, products, voucher)
-
         except AlreadyPlacedOrderException:
             return render(request, 'edx/error.html', {'error': _('You have already purchased these products')})
         url = add_utm_params_to_url(reverse('basket:summary'), self.request.GET.items())
@@ -402,6 +401,7 @@ class BasketSummaryView(BasketView):
             )
         except ValueError:
             total_benefit = None
+
         context.update({
             'formset_lines_data': zip(formset, lines_data),
             'free_basket': context['order_total'].incl_tax == 0,
@@ -515,7 +515,6 @@ class VoucherAddView(BaseVoucherAddView):  # pylint: disable=function-redefined
 
                 offer = voucher.offers.first()
                 product = stock_record.product
-                
                 email_confirmation_response = render_email_confirmation_if_required(self.request, offer, product)
                 if email_confirmation_response:
                     return email_confirmation_response

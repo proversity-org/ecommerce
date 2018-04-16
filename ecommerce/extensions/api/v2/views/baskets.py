@@ -257,8 +257,6 @@ class BasketCreateView(EdxOrderPlacementMixin, generics.CreateAPIView):
             # Note: Our order serializer could be used here, but in an effort to pare down the information
             # returned by this endpoint, simply returning the order number will suffice for now.
             response_data['order'] = {'number': order.number}
-
-        
         else:
             parameters = payment_processor.get_transaction_parameters(basket, request=self.request)
             payment_page_url = parameters.pop('payment_page_url')

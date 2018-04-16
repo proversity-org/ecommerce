@@ -34,11 +34,9 @@ class AtomicPublicationView(generics.CreateAPIView, generics.UpdateAPIView):
 
         serializer = self.get_serializer(data=data)
         is_valid = serializer.is_valid(raise_exception=True)
-       
         if is_valid:
             created, failure, message = serializer.save()
             if failure:
-
                 return Response({'error': message}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
             else:
                 content = serializer.data

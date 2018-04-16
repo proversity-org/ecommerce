@@ -2,12 +2,6 @@ import logging
 import stripe
 
 from django.http import JsonResponse
-from django.views.decorators.http import require_POST
-from django.views.decorators.csrf import ensure_csrf_cookie
-from ecommerce.core.models import User
-from django.conf import settings
-
-
 from oscar.core.loading import get_class, get_model
 
 from ecommerce.extensions.checkout.mixins import EdxOrderPlacementMixin
@@ -38,7 +32,6 @@ class StripeSubmitView(EdxOrderPlacementMixin, BasePaymentSubmitView):
         return Stripe(self.request.site)
 
     def form_valid(self, form):
-        print 
         form_data = form.cleaned_data
         basket = form_data['basket']
         token = form_data['stripe_token']
@@ -54,7 +47,6 @@ class StripeSubmitView(EdxOrderPlacementMixin, BasePaymentSubmitView):
             billing_address = None
 
         try:
-            # handle_processor_response
             self.handle_payment(token, basket)
         except Exception:  # pylint: disable=broad-except
             logger.exception('An error occurred while processing the Stripe payment for basket [%d].', basket.id)

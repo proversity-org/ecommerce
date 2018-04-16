@@ -372,7 +372,6 @@ class AtomicPublicationSerializer(serializers.Serializer):  # pylint: disable=ab
 
     def save(self):
         """Save and publish Course and associated products."
-
         Returns:
             tuple: A Boolean indicating whether the Course was created, an Exception,
                 if one was raised (else None), and a message for the user, if necessary (else None).
@@ -404,7 +403,6 @@ class AtomicPublicationSerializer(serializers.Serializer):  # pylint: disable=ab
                 course.verification_deadline = course_verification_deadline
                 course.is_subscription = is_subscription
                 course.subscription_plan_name = subscription_plan_name
-                
                 course.save()
 
                 create_enrollment_code = False
