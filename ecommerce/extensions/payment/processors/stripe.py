@@ -77,6 +77,7 @@ class Stripe(ApplePayMixin, BaseClientSidePaymentProcessor):
         user = basket.owner
         if basket.all_lines()[0].product.course.is_subscription is True:
             try:
+                course_id = basket.all_lines()[0].product.course.id
                 plan_name = basket.all_lines()[0].product.course.subscription_plan_name
                 customer = stripe.Customer.create(
                     source= token,
@@ -87,19 +88,26 @@ class Stripe(ApplePayMixin, BaseClientSidePaymentProcessor):
                 )
                 user.meta_data = { 
                     "stripe": {
-                        "customer_id": customer.id,
-                        "subscription_id": subscription.id
+                        course_id:{                   
+                            "customer_id": customer.id,
+                            "subscription_id": subscription.id
+                        }
                     }
                 }
                 user.save()
-                print type(subscription)
                 transaction_id=subscription.id
-                subscription_json = json.dumps(subscription, sort_keys=True, indent=2)
+                subscription_json = json.dumps(subscription, sort_keys=True)
                 subscription_dict = json.loads(subscription_json)
                 card_number = '' #subscription.source.last4
                 card_type = '' #STRIPE_CARD_TYPE_MAP.get(subscription.source.brand)
 
-                self.record_processor_response(subscription_json, transaction_id=str(subscription.id), basket=basket)
+                # Need to find a way to emulate the payment receipt process
+                # and need to ensure everything is saved to db
+                self.record_processor_response(
+                    subscription_json,
+                    transaction_id=str(subscription.id),
+                    basket=basket
+                )
             except stripe.error.CardError as ex:
                 msg = 'Stripe subscription for basket [%d] declined with HTTP status [%d]'
                 body = ex.json_body

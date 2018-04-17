@@ -9,7 +9,7 @@ from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
-
+import urllib 
 @ensure_csrf_cookie
 def unsubscribe(request):
     """
@@ -24,15 +24,15 @@ def unsubscribe(request):
     country = configuration['country']
     stripe.api_key = secret_key
     username = request.GET.get('username', None)
-    print username
-    course_id = request.POST.get('course_id', None)
+    course_id = request.GET.get('course_id', None)
+    print "course id", urllib.quote_plus(course_id)
     user = User.objects.get(username=username)
 
     try:
-        customer = stripe.Customer.retrieve(user.meta_data['stripe']['customer_id'])
-        subscription = stripe.Subscription.retrieve(user.meta_data['stripe']['subscription_id'])
+        print user.meta_data
+        customer = stripe.Customer.retrieve(user.meta_data['stripe'][course_id]['customer_id'])
+        subscription = stripe.Subscription.retrieve(user.meta_data['stripe'][course_id]['subscription_id'])
         subscription.delete(at_period_end = True)
-        
         return JsonResponse({'Sunscription cancelled for user': username}, status=200)
     except Exception, e:
         logger.error(e)
