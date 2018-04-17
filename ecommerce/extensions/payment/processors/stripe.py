@@ -1,7 +1,6 @@
 """ Stripe payment processing. """
 from __future__ import absolute_import, unicode_literals
 
-
 import json
 import logging
 import stripe
@@ -11,10 +10,7 @@ from oscar.core.loading import get_model
 
 from django.conf import settings
 from django.http import JsonResponse
-from django.views.decorators.http import require_POST
-from django.views.decorators.csrf import ensure_csrf_cookie
 
-from ecommerce.core.models import User
 from ecommerce.extensions.payment.constants import STRIPE_CARD_TYPE_MAP
 from ecommerce.extensions.payment.processors import (
     ApplePayMixin,

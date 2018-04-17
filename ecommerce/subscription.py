@@ -2,7 +2,6 @@ import logging
 import stripe
 
 from django.http import JsonResponse
-from django.views.decorators.http import require_POST
 from django.views.decorators.csrf import ensure_csrf_cookie
 from ecommerce.core.models import User
 from django.conf import settings
