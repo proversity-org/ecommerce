@@ -79,7 +79,6 @@ def sign(message, secret):
     """
     message = message.encode('utf-8')
     secret = secret.encode('utf-8')
-    secret = 'eyJhbGciOiJIUzI1NiJ9.eyJzY29wZXMiOiBbInByb2ZpbGUiLCAib3BlbmlkIiwgImVtYWlsIiwgInBlcm1pc3Npb25zIl0sICJhZG1pbmlzdHJhdG9yIjogZmFsc2UsICJhdWQiOiAiZWNvbW1lcmNlLWtleSIsICJmYW1pbHlfbmFtZSI6ICJlY29tbWVyY2UgbGFzdCIsICJpc3MiOiAiaHR0cDovLzEyNy4wLjAuMTo4MDAwL29hdXRoMiIsICJwcmVmZXJyZWRfdXNlcm5hbWUiOiAiZWNvbW1lcmNlX3dvcmtlciIsICJuYW1lIjogImVjb21tZXJjZSIsICJnaXZlbl9uYW1lIjogImVjb21tZXJjZV9maXJzdCIsICJleHAiOiAxNTU0MjgzMzQwLCAiaWF0IjogMTUyMjc0NzM0MSwgImVtYWlsIjogImVjb21tZXJjZV93b3JrZXJAZmFrZS5lbWFpbCIsICJzdWIiOiAiNWFmZTVkOWJiMDM3OTY1NTdlZTI2MTRmNWM5NjExZmIifQ.-XSh1qUFTIaYnS1uhStTXn-6EA_G0qIk7Pm94tr7FBc'
 
     # Calculate a message hash (i.e., digest) using the provided secret key
     digest = hmac.new(secret, msg=message, digestmod=hashlib.sha256).digest()
