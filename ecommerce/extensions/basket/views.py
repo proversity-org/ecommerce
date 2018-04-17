@@ -51,7 +51,7 @@ class BasketSingleItemView(View):
 
     def get(self, request):
         partner = get_partner_for_site(request)
-        
+
         sku = request.GET.get('sku', None)
         code = request.GET.get('code', None)
 

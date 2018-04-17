@@ -365,8 +365,7 @@ class SiteConfiguration(models.Model):
             str: JWT access token
         """
         key = 'siteconfiguration_access_token_{}'.format(self.id)
-        #Setting access token to None for devstack
-        access_token = None
+        access_token = cache.get(key)
         # pylint: disable=unsubscriptable-object
         if not access_token:
             url = '{root}/access_token'.format(root=self.oauth2_provider_url)
