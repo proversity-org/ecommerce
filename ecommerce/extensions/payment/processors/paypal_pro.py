@@ -88,7 +88,7 @@ class PaypalPro(BasePaymentProcessor):
 
         self.update_processor_response(transaction_id, response)
 
-        if self.verify_transaction(response['txn_id']):
+        if self.verify_transaction(response):
 
             currency = response.get('mc_currency')
             total = response.get('mc_gross')
@@ -118,17 +118,22 @@ class PaypalPro(BasePaymentProcessor):
             transaction_id=transaction_id
         ).update(response=response)
 
-    def verify_transaction(self, tx):
+    def verify_transaction(self, response):
         """
         """
+        tx = response['txn_id']
         data = {
             'METHOD': "GetTransactionDetails",
             "TRANSACTIONID": tx
         }
 
-        response, url = self._nvp_request(**data)
+        nvp_response, url = self._nvp_request(**data)
 
-        return response.get('PAYMENTSTATUS') == 'Completed'
+        if not response.get('mc_gross'):
+            response['mc_gross'] = nvp_response.get('AMT')
+            response['mc_currency'] = nvp_response.get('CURRENCYCODE')
+
+        return nvp_response.get('PAYMENTSTATUS') == 'Completed'
 
     def _nvp_request(self, **kwargs):
 

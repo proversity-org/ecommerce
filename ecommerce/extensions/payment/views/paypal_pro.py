@@ -82,14 +82,25 @@ class PaypalProPaymentExecutionView(EdxOrderPlacementMixin, View):
 
     def get(self, request, transaction_id):
         """Handle an incoming user returned to us by PayPal after approving payment."""
+
+        def get_transaction_state(status, reason):
+            if not status:
+                return HttpResponse('Waiting for Paypal response... Reload the page to update the state')
+            else:
+                return HttpResponse('Payment status is {} reason {}'.format(status, reason))
+
         processor_response = self._get_processor_response(transaction_id)
 
         if not processor_response:
             return redirect(self.payment_processor.error_url)
 
         paypal_response = processor_response.response
+        tx = request.GET.get('tx')
 
-        status = paypal_response.get('payment_status', 'Undefined')
+        if tx:
+            paypal_response['txn_id'] = tx
+
+        status = paypal_response.get('payment_status')
 
         if status != 'Completed':
             request.POST = QueryDict('', mutable=True)
@@ -97,9 +108,7 @@ class PaypalProPaymentExecutionView(EdxOrderPlacementMixin, View):
             response = self.post(request, transaction_id)
 
             if response.status_code != 201:
-                return HttpResponse(
-                    'Payment status is {} reason {}'.format(status, paypal_response.get('pending_reason', 'Undefined'))
-                )
+                return get_transaction_state(status, paypal_response.get('payment_status'))
 
         basket = processor_response.basket
         basket.strategy = strategy.Default()
