@@ -28,12 +28,24 @@ define([
             },
 
             onSuccess: function(data) {
-                var $form = $('<form>', {
-                    class: 'hidden',
-                    action: data.payment_page_url,
-                    method: 'POST',
-                    'accept-method': 'UTF-8'
-                });
+                if (data.payment_processor === 'paypal_pro'){
+                    var $form = $('<form>', {
+                        class: 'hidden',
+                        action: data.payment_page_url,
+                        method: 'POST',
+                        'accept-method': 'UTF-8',
+                        target: data.payment_processor
+                    });
+                    $('.paypal-pro-iframe').show();
+                } else {
+                    var $form = $('<form>', {
+                        class: 'hidden',
+                        action: data.payment_page_url,
+                        method: 'POST',
+                        'accept-method': 'UTF-8'
+                    });
+                }
+
 
                 _.each(data.payment_form_data, function(value, key) {
                     $('<input>').attr({
