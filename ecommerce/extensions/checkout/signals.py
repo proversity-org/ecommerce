@@ -91,35 +91,39 @@ def send_course_purchase_email(sender, order=None, **kwargs):  # pylint: disable
         if len(order.lines.all()) == ORDER_LINE_COUNT:
             product = order.lines.first().product
             credit_provider_id = getattr(product.attr, 'credit_provider', None)
-            if not credit_provider_id:
-                logger.error(
-                    'Failed to send credit receipt notification. Credit seat product [%s] has no provider.', product.id
-                )
-                return
-            elif product.is_seat_product:
-                provider_data = get_credit_provider_details(
-                    access_token=order.site.siteconfiguration.access_token,
-                    credit_provider_id=credit_provider_id,
-                    site_configuration=order.site.siteconfiguration
-                )
-
+            if product.is_seat_product:
                 receipt_page_url = get_receipt_page_url(
-                    order_number=order.number,
-                    site_configuration=order.site.siteconfiguration
+                        order_number=order.number,
+                        site_configuration=order.site.siteconfiguration
                 )
-
-                if provider_data:
+                if not credit_provider_id:
                     send_notification(
                         order.user,
-                        'CREDIT_RECEIPT',
+                        'PURCHASE_RECEIPT',
                         {
                             'course_title': product.title,
                             'receipt_page_url': receipt_page_url,
-                            'credit_hours': product.attr.credit_hours,
-                            'credit_provider': provider_data['display_name'],
                         },
                         order.site
                     )
+                else:
+                    provider_data = get_credit_provider_details(
+                        access_token=order.site.siteconfiguration.access_token,
+                        credit_provider_id=credit_provider_id,
+                        site_configuration=order.site.siteconfiguration
+                    )
+                    if provider_data:
+                        send_notification(
+                            order.user,
+                            'CREDIT_RECEIPT',
+                            {
+                                'course_title': product.title,
+                                'receipt_page_url': receipt_page_url,
+                                'credit_hours': product.attr.credit_hours,
+                                'credit_provider': provider_data['display_name'],
+                            },
+                            order.site
+                        )
 
         else:
             logger.info('Currently support receipt emails for order with one item.')
