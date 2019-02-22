@@ -121,7 +121,9 @@ class PaypalPro(BasePaymentProcessor):
     def verify_transaction(self, response):
         """
         """
-        tx = response['txn_id']
+        tx = response.get('txn_id')
+        if not tx:
+            return None
         data = {
             'METHOD': "GetTransactionDetails",
             "TRANSACTIONID": tx

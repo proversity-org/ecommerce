@@ -90,29 +90,25 @@ class PaypalProPaymentExecutionView(EdxOrderPlacementMixin, View):
                 return HttpResponse('Payment status is {} reason {}'.format(status, reason))
 
         processor_response = self._get_processor_response(transaction_id)
+        basket = self._get_basket(transaction_id)
 
-        if not processor_response:
+        if not processor_response or not basket:
             return redirect(self.payment_processor.error_url)
 
         paypal_response = processor_response.response
+        status = paypal_response.get('payment_status')
         tx = request.GET.get('tx')
 
-        if tx:
+        if tx and status != 'Completed':
             paypal_response['txn_id'] = tx
+            paypal_response['transaction_id'] = transaction_id
 
-        status = paypal_response.get('payment_status')
-
-        if status != 'Completed':
-            request.POST = QueryDict('', mutable=True)
-            request.POST.update(paypal_response)
-            response = self.post(request, transaction_id)
-
-            if response.status_code != 201:
+            try:
+                self._validate_payment(basket, request, paypal_response)
+            except PaypalProException:
                 return get_transaction_state(status, paypal_response.get('payment_status'))
-
-        basket = processor_response.basket
-        basket.strategy = strategy.Default()
-        Applicator().apply(basket, basket.owner, self.request)
+        elif not tx and status != 'Completed':
+            return HttpResponseBadRequest()
 
         receipt_url = get_receipt_page_url(
             order_number=basket.order_number,
@@ -134,14 +130,24 @@ class PaypalProPaymentExecutionView(EdxOrderPlacementMixin, View):
         paypal_response['transaction_id'] = transaction_id
 
         try:
+            self._validate_payment(basket, request, paypal_response)
+            return redirect('paypal_pro:execute', transaction_id=transaction_id)
+        except PaypalProException:
+            return HttpResponseBadRequest()
+
+    def _validate_payment(self, basket, request, paypal_response):
+        """
+        This validate the payment using the paypal response
+        """
+        try:
             with transaction.atomic():
                 try:
                     self.handle_payment(paypal_response, basket)
                 except PaymentError:
-                    return HttpResponseBadRequest()
+                    raise PaypalProException
         except Exception:
             logger.exception('Attempts to handle payment for basket [%d] failed.', basket.id)
-            return HttpResponseBadRequest()
+            raise PaypalProException
 
         try:
             shipping_method = NoShippingRequired()
@@ -169,7 +175,11 @@ class PaypalProPaymentExecutionView(EdxOrderPlacementMixin, View):
             except ValueError:
                 pass
 
-            return HttpResponse(status=201)
         except Exception:
             logger.exception(self.order_placement_failure_msg, basket.id)
-            return HttpResponseBadRequest()
+            raise PaypalProException
+
+
+class PaypalProException(Exception):
+    """Exception when the pay has not been validate successful"""
+    pass
