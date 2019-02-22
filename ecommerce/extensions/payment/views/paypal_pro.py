@@ -154,17 +154,20 @@ class PaypalProPaymentExecutionView(EdxOrderPlacementMixin, View):
             # than to retrieve an invoice number from PayPal.
             order_number = basket.order_number
 
-            self.handle_order_placement(
-                order_number=order_number,
-                user=user,
-                basket=basket,
-                shipping_address=None,
-                shipping_method=shipping_method,
-                shipping_charge=shipping_charge,
-                billing_address=None,
-                order_total=order_total,
-                request=request
-            )
+            try:
+                self.handle_order_placement(
+                    order_number=order_number,
+                    user=user,
+                    basket=basket,
+                    shipping_address=None,
+                    shipping_method=shipping_method,
+                    shipping_charge=shipping_charge,
+                    billing_address=None,
+                    order_total=order_total,
+                    request=request
+                )
+            except ValueError:
+                pass
 
             return HttpResponse(status=201)
         except Exception:
