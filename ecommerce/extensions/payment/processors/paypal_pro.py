@@ -86,8 +86,6 @@ class PaypalPro(BasePaymentProcessor):
 
         transaction_id = response.get('transaction_id')
 
-        self.update_processor_response(transaction_id, response)
-
         if self.verify_transaction(response):
 
             currency = response.get('mc_currency')

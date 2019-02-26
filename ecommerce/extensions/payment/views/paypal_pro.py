@@ -2,10 +2,11 @@
 from __future__ import unicode_literals
 
 import logging
+import requests
 
 from django.core.exceptions import MultipleObjectsReturned
 from django.db import transaction
-from django.http import Http404, HttpResponse, HttpResponseBadRequest, QueryDict
+from django.http import Http404, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.shortcuts import redirect
 from django.utils.decorators import method_decorator
@@ -106,9 +107,9 @@ class PaypalProPaymentExecutionView(EdxOrderPlacementMixin, View):
             try:
                 self._validate_payment(basket, request, paypal_response)
             except PaypalProException:
-                return get_transaction_state(status, paypal_response.get('payment_status'))
+                return get_transaction_state(status, paypal_response.get('pending_reason'))
         elif status != 'Completed':
-            return get_transaction_state(status, paypal_response.get('payment_status'))
+            return get_transaction_state(status, paypal_response.get('pending_reason'))
 
         receipt_url = get_receipt_page_url(
             order_number=basket.order_number,
@@ -122,18 +123,19 @@ class PaypalProPaymentExecutionView(EdxOrderPlacementMixin, View):
         This method store the result for the transaction
         """
         basket = self._get_basket(transaction_id)
+        paypal_response = request.POST.dict()
 
-        if not basket:
+        if not basket or not self._verify_paypal_origin(paypal_response):
             raise Http404
 
-        paypal_response = request.POST.dict()
         paypal_response['transaction_id'] = transaction_id
 
         try:
+            self.payment_processor.update_processor_response(transaction_id, paypal_response)
             self._validate_payment(basket, request, paypal_response)
-            return redirect('paypal_pro:execute', transaction_id=transaction_id)
         except PaypalProException:
-            return HttpResponseBadRequest()
+            pass
+        return redirect('paypal_pro:execute', transaction_id=transaction_id)
 
     def _validate_payment(self, basket, request, paypal_response):
         """
@@ -178,6 +180,21 @@ class PaypalProPaymentExecutionView(EdxOrderPlacementMixin, View):
         except Exception:
             logger.exception(self.order_placement_failure_msg, basket.id)
             raise PaypalProException
+
+    def _verify_paypal_origin(self, data):
+        """
+        This verifies if the request is from paypal
+        """
+        if self.payment_processor.configuration.get('mode') == 'sandbox':
+            url = 'https://ipnpb.sandbox.paypal.com/cgi-bin/webscr'
+        else:
+            url = 'https://ipnpb.paypal.com/cgi-bin/webscr'
+
+        data['cmd'] = "_notify-validate"
+
+        response = requests.post(url, data=data)
+
+        return response.text == 'VERIFIED'
 
 
 class PaypalProException(Exception):
