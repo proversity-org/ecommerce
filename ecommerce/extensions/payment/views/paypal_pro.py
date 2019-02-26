@@ -107,8 +107,8 @@ class PaypalProPaymentExecutionView(EdxOrderPlacementMixin, View):
                 self._validate_payment(basket, request, paypal_response)
             except PaypalProException:
                 return get_transaction_state(status, paypal_response.get('payment_status'))
-        elif not tx and status != 'Completed':
-            return HttpResponseBadRequest()
+        elif status != 'Completed':
+            return get_transaction_state(status, paypal_response.get('payment_status'))
 
         receipt_url = get_receipt_page_url(
             order_number=basket.order_number,
