@@ -1,0 +1,29 @@
+{% extends 'edx/base.html' %}
+{% load i18n %}
+{% load staticfiles %}
+
+{% block title %}
+    {% trans "Pending Payment" %}
+{% endblock %}
+
+{% block navbar %}
+    {% include 'edx/partials/_student_navbar.html' %}
+{% endblock %}
+
+{% block content %}
+    <div id="error-message">
+        <div class="container">
+            <div class="depth depth-2 message-error-content">
+                <h1>{% trans "Pending Payment" %}</h1>
+                {% if message %}
+                    <p>{% trans message %} </p>
+                {% else %}
+                    <p>{% blocktrans trimmed %}
+                        Your payment with {{ payment_processor_name }} is pending. Until it is approved, you will not get access to the course. We will notify you when it is approved and provide you access at that time.
+                    {% endblocktrans %}</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+{% endblock %}
+
