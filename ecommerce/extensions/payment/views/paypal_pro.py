@@ -6,9 +6,9 @@ import requests
 
 from django.core.exceptions import MultipleObjectsReturned
 from django.db import transaction
-from django.http import Http404, HttpResponse
+from django.http import Http404
 from django.views.decorators.csrf import csrf_exempt
-from django.shortcuts import redirect
+from django.shortcuts import redirect, render
 from django.utils.decorators import method_decorator
 from django.views.generic import View
 from oscar.apps.partner import strategy
@@ -86,9 +86,10 @@ class PaypalProPaymentExecutionView(EdxOrderPlacementMixin, View):
 
         def get_transaction_state(status, reason):
             if not status:
-                return HttpResponse('Waiting for Paypal response... Reload the page to update the state')
+                message = 'Waiting for Paypal response... Reload the page to update the state'
+                return render(request, 'checkout/payment_pending.html', {'message': message})
             else:
-                return HttpResponse('Payment status is {} reason {}'.format(status, reason))
+                return render(request, 'checkout/payment_pending.html', {'payment_processor_name': 'Paypal'})
 
         processor_response = self._get_processor_response(transaction_id)
         basket = self._get_basket(transaction_id)
