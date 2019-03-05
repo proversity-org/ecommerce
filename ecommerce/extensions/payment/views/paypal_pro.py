@@ -15,6 +15,7 @@ from oscar.apps.partner import strategy
 from oscar.apps.payment.exceptions import PaymentError
 from oscar.core.loading import get_class, get_model
 
+from ecommerce.core.url_utils import get_lms_dashboard_url
 from ecommerce.extensions.checkout.mixins import EdxOrderPlacementMixin
 from ecommerce.extensions.checkout.utils import get_receipt_page_url
 from ecommerce.extensions.payment.processors.paypal_pro import PaypalPro
@@ -84,12 +85,13 @@ class PaypalProPaymentExecutionView(EdxOrderPlacementMixin, View):
     def get(self, request, transaction_id):
         """Handle an incoming user returned to us by PayPal after approving payment."""
 
-        def get_transaction_state(status, reason):
-            if not status:
-                message = 'Waiting for Paypal response... Reload the page to update the state'
-                return render(request, 'checkout/payment_pending.html', {'message': message})
-            else:
-                return render(request, 'checkout/payment_pending.html', {'payment_processor_name': 'Paypal'})
+        def pending_page():
+
+            context = dict(
+                payment_processor_name='Paypal',
+                dashboard_url=get_lms_dashboard_url()
+            )
+            return render(request, 'checkout/payment_pending.html', context)
 
         processor_response = self._get_processor_response(transaction_id)
         basket = self._get_basket(transaction_id)
@@ -108,9 +110,9 @@ class PaypalProPaymentExecutionView(EdxOrderPlacementMixin, View):
             try:
                 self._validate_payment(basket, request, paypal_response)
             except PaypalProException:
-                return get_transaction_state(status, paypal_response.get('pending_reason'))
+                return pending_page()
         elif status != 'Completed':
-            return get_transaction_state(status, paypal_response.get('pending_reason'))
+            return pending_page()
 
         receipt_url = get_receipt_page_url(
             order_number=basket.order_number,
