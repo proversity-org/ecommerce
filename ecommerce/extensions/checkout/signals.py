@@ -4,6 +4,7 @@ import waffle
 from django.dispatch import receiver
 from oscar.core.loading import get_class, get_model
 
+from ecommerce.core.url_utils import get_lms_dashboard_url
 from ecommerce.courses.utils import mode_for_product
 from ecommerce.extensions.analytics.utils import silence_exceptions, track_segment_event
 from ecommerce.extensions.checkout.utils import get_credit_provider_details, get_receipt_page_url
@@ -108,30 +109,25 @@ def send_course_purchase_email(sender, order=None, **kwargs):  # pylint: disable
                 else:
                     provider_data = None
 
+                context = {
+                        'course_title': product.title,
+                        'receipt_page_url': receipt_page_url,
+                    }
+
                 if provider_data:
-                    send_notification(
-                        order.user,
-                        'CREDIT_RECEIPT',
-                        {
-                            'course_title': product.title,
-                            'receipt_page_url': receipt_page_url,
+                    commtype_code = 'CREDIT_RECEIPT'
+                    context.update({
                             'credit_hours': product.attr.credit_hours,
                             'credit_provider': provider_data['display_name'],
-                        },
-                        order.site
-                    )
-                else:
-                    send_notification(
-                        order.user,
-                        'COURSE_SEAT_PURCHASED',
-                        {
-                            'course_title': product.title,
-                            'receipt_page_url': receipt_page_url,
-                            'product' : product,
-                            'order' : order
-                        },
-                        order.site
-                    )
+                        })
 
+                else:
+                    commtype_code = 'COURSE_SEAT_PURCHASED'
+                    context.update({
+                            'product' : product,
+                            'order' : order,
+                            'lms_dashboard_url' : get_lms_dashboard_url()
+                        }),
+                send_notification(order.user, commtype_code, context, order.site)
         else:
             logger.info('Currently support receipt emails for order with one item.')
