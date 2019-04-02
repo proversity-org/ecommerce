@@ -6,7 +6,7 @@ import requests
 
 from django.core.exceptions import MultipleObjectsReturned
 from django.db import transaction
-from django.http import Http404
+from django.http import Http404, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.shortcuts import redirect, render
 from django.utils.decorators import method_decorator
@@ -203,3 +203,17 @@ class PaypalProPaymentExecutionView(EdxOrderPlacementMixin, View):
 class PaypalProException(Exception):
     """Exception when the pay has not been validate successful"""
     pass
+
+
+class PaypalProNotificationView(PaypalProPaymentExecutionView):
+    """This view responds to Paypal IPN"""
+
+    def post(self, request, transaction_id):
+        """
+        This method store the result for the transaction
+        """
+        response = super(PaypalProNotificationView, self).post(request, transaction_id)
+        if response.status_code == 302:
+            return HttpResponse(status=200)
+
+        raise Http404
