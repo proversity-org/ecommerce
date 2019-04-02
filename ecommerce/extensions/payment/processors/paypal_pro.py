@@ -47,6 +47,11 @@ class PaypalPro(BasePaymentProcessor):
             reverse('paypal_pro:execute', kwargs={'transaction_id': transaction_id})
         )
 
+        notify_url = urljoin(
+            get_ecommerce_url(),
+            reverse('paypal_pro:ipn', kwargs={'transaction_id': transaction_id})
+        )
+
         currency_code = 'currency_code={code}'.format(code=basket.currency)
 
         data = {
@@ -56,7 +61,7 @@ class PaypalPro(BasePaymentProcessor):
             'L_BUTTONVAR0': 'subtotal={}'.format(unicode(basket.total_incl_tax)),
             'L_BUTTONVAR1': 'template=templateD',
             'L_BUTTONVAR2': 'return={}'.format(return_url),
-            'L_BUTTONVAR3': 'notify_url={}'.format(return_url),
+            'L_BUTTONVAR3': 'notify_url={}'.format(notify_url),
             'L_BUTTONVAR4': currency_code,
             'L_BUTTONVAR5': 'showHostedThankyouPage=false',
         }

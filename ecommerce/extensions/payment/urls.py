@@ -35,6 +35,13 @@ PAYPAL_PRO_URLS = [
         paypal_pro.PaypalProPaymentExecutionView.as_view(),
         name='execute'
     ),
+    url(
+        r'^ipn/{transaction_id}$'.format(
+            transaction_id=TRANSACTION_ID_PATTERN,
+        ),
+        paypal_pro.PaypalProNotificationView.as_view(),
+        name='ipn'
+    ),
 ]
 
 urlpatterns = [
