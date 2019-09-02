@@ -20,7 +20,7 @@ from ecommerce.core.constants import (
     DONATIONS_FROM_CHECKOUT_TESTS_PRODUCT_TYPE_NAME,
     ENROLLMENT_CODE_PRODUCT_CLASS_NAME
 )
-from ecommerce.core.url_utils import get_lms_enrollment_api_url, get_lms_entitlement_api_url
+from ecommerce.core.url_utils import get_lms_enrollment_api_url, get_lms_entitlement_api_url, get_lms_url
 from ecommerce.courses.models import Course
 from ecommerce.courses.utils import mode_for_product
 from ecommerce.enterprise.utils import get_or_create_enterprise_customer_user
@@ -104,6 +104,30 @@ class BaseFulfillmentModule(object):  # pragma: no cover
             True, if the product is revoked; otherwise, False.
         """
         raise NotImplementedError("Revoke method not implemented!")
+
+    def execute_external_enrollment(self, order, supported_lines):
+        """
+        Method to complete an external enrollment if required.
+        """
+
+        for line in supported_lines:
+            payload = {
+                "user_email": order.user.email,
+                "course_mode": mode_for_product(line.product),
+                "course_id": line.product.attr.course_key
+            }
+            
+            url = get_lms_url('/openedx_external_enrollments/api/v0/external-enrollment')
+            headers = {"Authorization": "token", "Accept":"application/json", "Content-Type": "application/json"}
+            try:
+                response = requests.post(url, headers=headers, data=json.dumps(payload))
+                if response.ok:
+                    data = response.json()
+                    logging.info("External enrollment call completed")
+                    return data
+            except Exception as e:
+                logging.error("Reason: " + str(e))
+            return None
 
 
 class DonationsFromCheckoutTestFulfillmentModule(BaseFulfillmentModule):
