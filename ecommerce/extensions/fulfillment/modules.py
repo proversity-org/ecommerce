@@ -118,7 +118,7 @@ class BaseFulfillmentModule(object):  # pragma: no cover
             }
 
             url = get_lms_url('/openedx_external_enrollments/api/v0/external-enrollment')
-            headers = {"Authorization": token, "Accept":"application/json", "Content-Type": "application/json"}
+            headers = {"Authorization": "token", "Accept":"application/json", "Content-Type": "application/json"}
             try:
                 response = requests.post(url, headers=headers, data=json.dumps(payload))
                 if response.ok:
