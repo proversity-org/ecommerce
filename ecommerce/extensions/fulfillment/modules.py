@@ -120,14 +120,15 @@ class BaseFulfillmentModule(object):  # pragma: no cover
             url = get_lms_url('/openedx_external_enrollments/api/v0/external-enrollment')
             headers = {"Authorization": "token", "Accept":"application/json", "Content-Type": "application/json"}
             try:
+                logging.info('calling enrollment plugin with: %s', payload)
                 response = requests.post(url, headers=headers, data=json.dumps(payload))
                 if response.ok:
                     data = response.json()
-                    logging.info("External enrollment call completed")
-                    return data
+                    logging.info("External enrollment call completed - data %s", data)
+                else:
+                    logging.error("Error calling plugin: %s", response.json())
             except Exception as e:
                 logging.error("Reason: " + str(e))
-            return None
 
 
 class DonationsFromCheckoutTestFulfillmentModule(BaseFulfillmentModule):
