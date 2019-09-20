@@ -105,11 +105,11 @@ class BaseFulfillmentModule(object):  # pragma: no cover
         """
         raise NotImplementedError("Revoke method not implemented!")
 
-    def execute_external_enrollment(self, order, supported_lines):
+    def execute_external_enrollment(self, order, lines):
         """
         Method to complete an external enrollment if required.
         """
-
+        supported_lines = self.get_supported_lines(lines)
         for line in supported_lines:
             payload = {
                 "user_email": order.user.email,
@@ -125,12 +125,10 @@ class BaseFulfillmentModule(object):  # pragma: no cover
                 if response.ok:
                     data = response.json()
                     logging.info("External enrollment call completed - data %s", data)
-                    return data
                 else:
                     logging.error("Error calling plugin: %s", response.json())
             except Exception as e:
                 logging.error("Reason: " + str(e))
-            return None
 
 
 class DonationsFromCheckoutTestFulfillmentModule(BaseFulfillmentModule):
