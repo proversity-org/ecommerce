@@ -125,12 +125,10 @@ class BaseFulfillmentModule(object):  # pragma: no cover
                 if response.ok:
                     data = response.json()
                     logging.info("External enrollment call completed - data %s", data)
-                    return data
                 else:
                     logging.error("Error calling plugin: %s", response.json())
             except Exception as e:
                 logging.error("Reason: " + str(e))
-            return None
 
 
 class DonationsFromCheckoutTestFulfillmentModule(BaseFulfillmentModule):
