@@ -88,3 +88,10 @@ def get_lms_url(path=''):
 def get_oauth2_provider_url():
     site_configuration = _get_site_configuration()
     return site_configuration.oauth2_provider_url
+
+
+def get_external_enrollment_api_url():
+    """
+    Returns the external enrollment api url.
+    """
+    return get_lms_url('/openedx_external_enrollments/api/v0')
