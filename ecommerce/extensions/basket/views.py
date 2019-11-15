@@ -408,7 +408,8 @@ class BasketSummaryView(BasketView):
             'homepage_url': get_lms_url(''),
             'min_seat_quantity': 1,
             'payment_processors': payment_processors,
-            'total_benefit': total_benefit
+            'total_benefit': total_benefit,
+            'custom_settings': site_configuration.custom_settings,
         })
         return context
 
