@@ -58,6 +58,7 @@ def fulfill_order(order, lines, email_opt_in=False):
             if supported_lines:
                 line_items = list(set(line_items) - set(supported_lines))
                 module.fulfill_product(order, supported_lines, email_opt_in=email_opt_in)
+                module.execute_external_enrollment(order, supported_lines)
 
         # Check to see if any line items in the order have not been accounted for by a FulfillmentModule
         # Any product does not line up with a module, we have to mark a fulfillment error.
