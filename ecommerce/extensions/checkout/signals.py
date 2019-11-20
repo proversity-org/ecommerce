@@ -4,6 +4,7 @@ import waffle
 from django.dispatch import receiver
 from oscar.core.loading import get_class, get_model
 
+from ecommerce.core.url_utils import get_lms_dashboard_url
 from ecommerce.courses.utils import mode_for_product
 from ecommerce.extensions.analytics.utils import silence_exceptions, track_segment_event
 from ecommerce.extensions.checkout.utils import get_credit_provider_details, get_receipt_page_url
@@ -101,35 +102,41 @@ def send_course_purchase_email(sender, order=None, **kwargs):  # pylint: disable
         if len(order.lines.all()) == ORDER_LINE_COUNT:
             product = order.lines.first().product
             credit_provider_id = getattr(product.attr, 'credit_provider', None)
-            if not credit_provider_id:
-                logger.error(
-                    'Failed to send credit receipt notification. Credit seat product [%s] has no provider.', product.id
+
+            if product.is_seat_product:
+                receipt_page_url = get_receipt_page_url(
+                    order_number=order.number,
+                    site_configuration=order.site.siteconfiguration,
                 )
-                return
-            elif product.is_seat_product:
+
                 provider_data = get_credit_provider_details(
                     access_token=order.site.siteconfiguration.access_token,
                     credit_provider_id=credit_provider_id,
-                    site_configuration=order.site.siteconfiguration
-                )
+                    site_configuration=order.site.siteconfiguration,
+                ) if credit_provider_id else None
 
-                receipt_page_url = get_receipt_page_url(
-                    order_number=order.number,
-                    site_configuration=order.site.siteconfiguration
-                )
+                context = {
+                    'course_title': product.title,
+                    'receipt_page_url': receipt_page_url,
+                }
 
                 if provider_data:
-                    send_notification(
-                        order.user,
-                        'CREDIT_RECEIPT',
-                        {
-                            'course_title': product.title,
-                            'receipt_page_url': receipt_page_url,
-                            'credit_hours': product.attr.credit_hours,
-                            'credit_provider': provider_data['display_name'],
-                        },
-                        order.site
-                    )
+                    commtype_code = 'CREDIT_RECEIPT'
+
+                    context.update({
+                        'credit_hours': product.attr.credit_hours,
+                        'credit_provider': provider_data['display_name'],
+                    })
+                else:
+                    commtype_code = 'COURSE_SEAT_PURCHASED'
+
+                    context.update({
+                        'product': product,
+                        'order': order,
+                        'lms_dashboard_url': get_lms_dashboard_url(),
+                    })
+
+                send_notification(order.user, commtype_code, context, order.site)
 
         else:
             logger.info('Currently support receipt emails for order with one item.')
