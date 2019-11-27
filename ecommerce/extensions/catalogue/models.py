@@ -1,3 +1,5 @@
+from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
 from django.db import models
 from django.db.models.signals import post_init, post_save
 from django.dispatch import receiver
@@ -11,6 +13,7 @@ from ecommerce.core.constants import (
     SEAT_PRODUCT_CLASS_NAME
 )
 from ecommerce.core.utils import log_message_and_raise_validation_error
+from ecommerce.journals.constants import JOURNAL_PRODUCT_CLASS_NAME  # TODO: journals dependency
 
 
 class Product(AbstractProduct):
@@ -33,6 +36,11 @@ class Product(AbstractProduct):
     def is_course_entitlement_product(self):
         return self.get_product_class().name == COURSE_ENTITLEMENT_PRODUCT_CLASS_NAME
 
+    # TODO: journals dependency
+    @property
+    def is_journal_product(self):
+        return self.get_product_class().name == JOURNAL_PRODUCT_CLASS_NAME
+
     @property
     def is_coupon_product(self):
         return self.get_product_class().name == COUPON_PRODUCT_CLASS_NAME
@@ -45,6 +53,17 @@ class Product(AbstractProduct):
                 )
         except AttributeError:
             pass
+
+        try:
+            if self.attr.notify_email is not None:
+                validate_email(self.attr.notify_email)
+        except ValidationError:
+            log_message_and_raise_validation_error(
+                'Notification email must be a valid email address.'
+            )
+        except AttributeError:
+            pass
+
         super(Product, self).save(*args, **kwargs)  # pylint: disable=bad-super-call
 
 

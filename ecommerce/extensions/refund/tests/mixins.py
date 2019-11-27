@@ -5,7 +5,7 @@ from django.conf import settings
 from django.test import override_settings
 from mock_django import mock_signal_receiver
 from oscar.core.loading import get_class, get_model
-from oscar.test.newfactories import BasketFactory
+from oscar.test.factories import BasketFactory
 
 from ecommerce.courses.tests.factories import CourseFactory
 from ecommerce.entitlements.utils import create_or_update_course_entitlement
@@ -27,20 +27,19 @@ class RefundTestMixin(DiscoveryTestMixin):
     def setUp(self):
         super(RefundTestMixin, self).setUp()
         self.course = CourseFactory(
-            id=u'edX/DemoX/Demo_Course', name=u'edX Demó Course', site=self.site
+            id=u'edX/DemoX/Demo_Course', name=u'edX Demó Course', partner=self.partner
         )
-        self.honor_product = self.course.create_or_update_seat('honor', False, 0, self.partner)
-        self.verified_product = self.course.create_or_update_seat('verified', True, 10, self.partner)
+        self.honor_product = self.course.create_or_update_seat('honor', False, 0)
+        self.verified_product = self.course.create_or_update_seat('verified', True, 10)
         self.credit_product = self.course.create_or_update_seat(
             'credit',
             True,
             100,
-            self.partner,
             credit_provider='HGW'
         )
 
     def create_order(self, user=None, credit=False, multiple_lines=False, free=False,
-                     entitlement=False, status=ORDER.COMPLETE):
+                     entitlement=False, status=ORDER.COMPLETE, id_verification_required=False):
         user = user or self.user
         basket = BasketFactory(owner=user, site=self.site)
 
@@ -52,8 +51,15 @@ class RefundTestMixin(DiscoveryTestMixin):
         elif free:
             basket.add_product(self.honor_product)
         elif entitlement:
-            self.course_entitlement = create_or_update_course_entitlement('verified', 100, self.partner, '111', 'Foo')
-            basket.add_product(self.course_entitlement)
+            course_entitlement = create_or_update_course_entitlement(
+                certificate_type='verified',
+                price=100,
+                partner=self.partner,
+                UUID='111',
+                name='Foo',
+                id_verification_required=id_verification_required
+            )
+            basket.add_product(course_entitlement)
         else:
             basket.add_product(self.verified_product)
 

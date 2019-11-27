@@ -1,18 +1,18 @@
 import datetime
 import hashlib
 import logging
-from urlparse import urljoin
+from urlparse import urljoin, urlsplit, urlunsplit
 
 from dateutil.parser import parse
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.contrib.sites.models import Site
-from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils.functional import cached_property
 from django.utils.timezone import now
 from django.utils.translation import ugettext_lazy as _
+from edx_django_utils.cache import TieredCache
 from edx_rest_api_client.client import EdxRestApiClient
 from jsonfield.fields import JSONField
 from requests.exceptions import ConnectionError, Timeout
@@ -23,6 +23,7 @@ from ecommerce.core.url_utils import get_lms_url
 from ecommerce.core.utils import log_message_and_raise_validation_error
 from ecommerce.extensions.payment.exceptions import ProcessorNotFoundError
 from ecommerce.extensions.payment.helpers import get_processor_class, get_processor_class_by_name
+from ecommerce.journals.constants import JOURNAL_DISCOVERY_API_PATH  # TODO: journals dependency
 
 log = logging.getLogger(__name__)
 
@@ -35,7 +36,7 @@ class SiteConfiguration(models.Model):
     """
 
     site = models.OneToOneField('sites.Site', null=False, blank=False, on_delete=models.CASCADE)
-    partner = models.OneToOneField('partner.Partner', null=False, blank=False, on_delete=models.CASCADE)
+    partner = models.ForeignKey('partner.Partner', null=False, blank=False, on_delete=models.CASCADE)
     lms_url_root = models.URLField(
         verbose_name=_('LMS base url for custom site/microsite'),
         help_text=_("Root URL of this site's LMS (e.g. https://courses.stage.edx.org)"),
@@ -175,6 +176,12 @@ class SiteConfiguration(models.Model):
         verbose_name=_('Discovery API URL'),
         null=False,
         blank=False,
+    )
+    # TODO: journals dependency
+    journals_api_url = models.URLField(
+        verbose_name=_('Journals Service API URL'),
+        null=True,
+        blank=True
     )
     enable_apple_pay = models.BooleanField(
         # Translators: Do not translate "Apple Pay"
@@ -365,21 +372,20 @@ class SiteConfiguration(models.Model):
             str: JWT access token
         """
         key = 'siteconfiguration_access_token_{}'.format(self.id)
-        access_token = cache.get(key)
+        access_token_cached_response = TieredCache.get_cached_response(key)
+        if access_token_cached_response.is_found:
+            return access_token_cached_response.value
 
-        # pylint: disable=unsubscriptable-object
-        if not access_token:
-            url = '{root}/access_token'.format(root=self.oauth2_provider_url)
-            access_token, expiration_datetime = EdxRestApiClient.get_oauth_access_token(
-                url,
-                self.oauth_settings['SOCIAL_AUTH_EDX_OIDC_KEY'],
-                self.oauth_settings['SOCIAL_AUTH_EDX_OIDC_SECRET'],
-                token_type='jwt'
-            )
+        url = '{root}/access_token'.format(root=self.oauth2_provider_url)
+        access_token, expiration_datetime = EdxRestApiClient.get_oauth_access_token(
+            url,
+            self.oauth_settings['SOCIAL_AUTH_EDX_OIDC_KEY'],  # pylint: disable=unsubscriptable-object
+            self.oauth_settings['SOCIAL_AUTH_EDX_OIDC_SECRET'],  # pylint: disable=unsubscriptable-object
+            token_type='jwt'
+        )
 
-            expires = (expiration_datetime - datetime.datetime.utcnow()).seconds
-            cache.set(key, access_token, expires)
-
+        expires = (expiration_datetime - datetime.datetime.utcnow()).seconds
+        TieredCache.set_all_tiers(key, access_token, expires)
         return access_token
 
     @cached_property
@@ -392,6 +398,26 @@ class SiteConfiguration(models.Model):
         """
 
         return EdxRestApiClient(self.discovery_api_url, jwt=self.access_token)
+
+    # TODO: journals dependency
+    @cached_property
+    def journal_discovery_api_client(self):
+        """
+        Returns an Journal API client to access the Discovery service.
+
+        Returns:
+            EdxRestApiClient: The client to access the Journal API in the Discovery service.
+        """
+        split_url = urlsplit(self.discovery_api_url)
+        journal_discovery_url = urlunsplit([
+            split_url.scheme,
+            split_url.netloc,
+            JOURNAL_DISCOVERY_API_PATH,
+            split_url.query,
+            split_url.fragment
+        ])
+
+        return EdxRestApiClient(journal_discovery_url, jwt=self.access_token)
 
     @cached_property
     def embargo_api_client(self):
@@ -542,18 +568,20 @@ class User(AbstractUser):
         try:
             cache_key = 'verification_status_{username}'.format(username=self.username)
             cache_key = hashlib.md5(cache_key).hexdigest()
-            verification = cache.get(cache_key)
-            if not verification:
-                api = EdxRestApiClient(
-                    site.siteconfiguration.build_lms_url('api/user/v1/'),
-                    oauth_access_token=self.access_token
-                )
-                response = api.accounts(self.username).verification_status().get()
+            verification_cached_response = TieredCache.get_cached_response(cache_key)
+            if verification_cached_response.is_found:
+                return verification_cached_response.value
 
-                verification = response.get('is_verified', False)
-                if verification:
-                    cache_timeout = int((parse(response.get('expiration_datetime')) - now()).total_seconds())
-                    cache.set(cache_key, verification, cache_timeout)
+            api = EdxRestApiClient(
+                site.siteconfiguration.build_lms_url('api/user/v1/'),
+                oauth_access_token=self.access_token
+            )
+            response = api.accounts(self.username).verification_status().get()
+
+            verification = response.get('is_verified', False)
+            if verification:
+                cache_timeout = int((parse(response.get('expiration_datetime')) - now()).total_seconds())
+                TieredCache.set_all_tiers(cache_key, verification, cache_timeout)
             return verification
         except HttpNotFoundError:
             log.debug('No verification data found for [%s]', self.username)
@@ -564,7 +592,7 @@ class User(AbstractUser):
             return False
 
     def deactivate_account(self, site_configuration):
-        """Deactive the user's account.
+        """Deactivate the user's account.
 
         Args:
             site_configuration (SiteConfiguration): The site configuration
@@ -592,6 +620,12 @@ class BusinessClient(models.Model):
     """The model for the business client."""
 
     name = models.CharField(_('Name'), unique=True, max_length=255)
+    enterprise_customer_uuid = models.UUIDField(
+        verbose_name=_('EnterpriseCustomer UUID'),
+        help_text=_('UUID for an EnterpriseCustomer from the Enterprise Service.'),
+        null=True,
+        blank=True,
+    )
 
     def __str__(self):
         return self.name

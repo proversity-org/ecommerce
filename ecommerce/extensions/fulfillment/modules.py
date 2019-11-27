@@ -10,7 +10,7 @@ import logging
 
 import requests
 from django.conf import settings
-from django.core.urlresolvers import reverse
+from django.urls import reverse
 from edx_rest_api_client.client import EdxRestApiClient
 from oscar.core.loading import get_model
 from requests.exceptions import ConnectionError, Timeout  # pylint: disable=ungrouped-imports
@@ -25,6 +25,7 @@ from ecommerce.courses.models import Course
 from ecommerce.courses.utils import mode_for_product
 from ecommerce.enterprise.utils import get_or_create_enterprise_customer_user
 from ecommerce.extensions.analytics.utils import audit_log, parse_tracking_context
+from ecommerce.extensions.api.v2.views.coupons import CouponViewSet
 from ecommerce.extensions.checkout.utils import get_receipt_page_url
 from ecommerce.extensions.fulfillment.status import LINE
 from ecommerce.extensions.voucher.models import OrderLineVouchers
@@ -36,6 +37,7 @@ Option = get_model('catalogue', 'Option')
 Product = get_model('catalogue', 'Product')
 Range = get_model('offer', 'Range')
 Voucher = get_model('voucher', 'Voucher')
+StockRecord = get_model('partner', 'StockRecord')
 logger = logging.getLogger(__name__)
 
 
@@ -76,7 +78,7 @@ class BaseFulfillmentModule(object):  # pragma: no cover
         raise NotImplementedError("Line support method not implemented!")
 
     @abc.abstractmethod
-    def fulfill_product(self, order, lines):
+    def fulfill_product(self, order, lines, email_opt_in=False):
         """ Fulfills the specified lines in the order.
 
         Iterates over the given lines and fulfills the associated products. Will report success if the product can
@@ -86,6 +88,9 @@ class BaseFulfillmentModule(object):  # pragma: no cover
         Args:
             order (Order): The Order associated with the lines to be fulfilled
             lines (List of Lines): Order Lines, associated with purchased products in an Order.
+            email_opt_in (bool): Whether to opt the user in to emails as part
+                of fulfillment. Defaults to false. Used for email opt in with
+                bundle (program) purchases.
 
         Returns:
             The original set of lines, with new statuses set based on the success or failure of fulfillment.
@@ -129,13 +134,15 @@ class DonationsFromCheckoutTestFulfillmentModule(BaseFulfillmentModule):
         """
         return [line for line in lines if self.supports_line(line)]
 
-    def fulfill_product(self, order, lines):
+    def fulfill_product(self, order, lines, email_opt_in=False):
         """ Fulfills the specified lines in the order.
         Marks the line status as complete. Does not change anything else.
 
         Args:
             order (Order): The Order associated with the lines to be fulfilled
             lines (List of Lines): Order Lines, associated with purchased products in an Order.
+            email_opt_in (bool): Whether the user should be opted in to emails
+                as part of the fulfillment. Defaults to False.
 
         Returns:
             The original set of lines, with new statuses set based on the success or failure of fulfillment.
@@ -234,7 +241,7 @@ class EnrollmentFulfillmentModule(BaseFulfillmentModule):
         """
         return [line for line in lines if self.supports_line(line)]
 
-    def fulfill_product(self, order, lines):
+    def fulfill_product(self, order, lines, email_opt_in=False):
         """ Fulfills the purchase of a 'seat' by enrolling the associated student.
 
         Uses the order and the lines to determine which courses to enroll a student in, and with certain
@@ -246,6 +253,8 @@ class EnrollmentFulfillmentModule(BaseFulfillmentModule):
                 is presumed to be the student to enroll in a course.
             lines (List of Lines): Order Lines, associated with purchased products in an Order. These should only
                 be "Seat" products.
+            email_opt_in (bool): Whether the user should be opted in to emails
+                as part of the fulfillment. Defaults to False.
 
         Returns:
             The original set of lines, with new statuses set based on the success or failure of fulfillment.
@@ -331,16 +340,19 @@ class EnrollmentFulfillmentModule(BaseFulfillmentModule):
                         "Fulfillment of line [%d] on order [%s] failed with status code [%d]: %s",
                         line.id, order.number, response.status_code, reason
                     )
+                    order.notes.create(message=reason, note_type='Error')
                     line.set_status(LINE.FULFILLMENT_SERVER_ERROR)
             except ConnectionError:
                 logger.error(
                     "Unable to fulfill line [%d] of order [%s] due to a network problem", line.id, order.number
                 )
+                order.notes.create(message='Fulfillment of order failed due to a network problem.', note_type='Error')
                 line.set_status(LINE.FULFILLMENT_NETWORK_ERROR)
             except Timeout:
                 logger.error(
                     "Unable to fulfill line [%d] of order [%s] due to a request time out", line.id, order.number
                 )
+                order.notes.create(message='Fulfillment of order failed due to a request time out.', note_type='Error')
                 line.set_status(LINE.FULFILLMENT_TIMEOUT_ERROR)
         logger.info("Finished fulfilling 'Seat' product types for order [%s]", order.number)
         return order, lines
@@ -418,13 +430,15 @@ class CouponFulfillmentModule(BaseFulfillmentModule):
         """
         return [line for line in lines if self.supports_line(line)]
 
-    def fulfill_product(self, order, lines):
+    def fulfill_product(self, order, lines, email_opt_in=False):
         """ Fulfills the purchase of an 'coupon' products.
 
         Args:
             order (Order): The Order associated with the lines to be fulfilled.
             lines (List of Lines): Order Lines, associated with purchased products in an Order. These should only
                 be 'Coupon' products.
+            email_opt_in (bool): Whether the user should be opted in to emails
+                as part of the fulfillment. Defaults to False.
         Returns:
             The original set of lines, with new statuses set based on the success or failure of fulfillment.
         """
@@ -472,7 +486,7 @@ class EnrollmentCodeFulfillmentModule(BaseFulfillmentModule):
         """
         return [line for line in lines if self.supports_line(line)]
 
-    def fulfill_product(self, order, lines):
+    def fulfill_product(self, order, lines, email_opt_in=False):
         """ Fulfills the purchase of an Enrollment code product.
         For each line creates number of vouchers equal to that line's quantity. Creates a new OrderLineVouchers
         object to tie the order with the created voucher and adds the vouchers to the coupon's total vouchers.
@@ -480,6 +494,8 @@ class EnrollmentCodeFulfillmentModule(BaseFulfillmentModule):
         Args:
             order (Order): The Order associated with the lines to be fulfilled.
             lines (List of Lines): Order Lines, associated with purchased products in an Order.
+            email_opt_in (bool): Whether the user should be opted in to emails
+                as part of the fulfillment. Defaults to False.
 
         Returns:
             The original set of lines, with new statuses set based on the success or failure of fulfillment.
@@ -503,14 +519,20 @@ class EnrollmentCodeFulfillmentModule(BaseFulfillmentModule):
             if created:
                 _range.add_product(seat)
 
+            stock_record = StockRecord.objects.get(product=seat, partner=seat.course.partner)
+            coupon_catalog = CouponViewSet.get_coupon_catalog([stock_record.id], seat.course.partner)
+            _range.catalog = coupon_catalog
+            _range.save()
+
             vouchers = create_vouchers(
-                name='Enrollment code voucher [{}]'.format(line.product.title),
+                name=unicode('Enrollment code voucher [{}]').format(line.product.title),
                 benefit_type=Benefit.PERCENTAGE,
                 benefit_value=100,
-                catalog=None,
+                catalog=coupon_catalog,
                 coupon=seat,
                 end_datetime=settings.ENROLLMENT_CODE_EXIPRATION_DATE,
                 enterprise_customer=None,
+                enterprise_customer_catalog=None,
                 quantity=line.quantity,
                 start_datetime=datetime.datetime.now(),
                 voucher_type=Voucher.SINGLE_USE,
@@ -561,6 +583,7 @@ class EnrollmentCodeFulfillmentModule(BaseFulfillmentModule):
                 'order_number': order.number,
                 'partner_name': order.site.siteconfiguration.partner.name,
                 'receipt_page_url': receipt_page_url,
+                'order_history_url': order.site.siteconfiguration.build_lms_url('account/settings'),
             },
             site=order.site
         )
@@ -581,20 +604,26 @@ class CourseEntitlementFulfillmentModule(BaseFulfillmentModule):
         Args:
             lines (List of Lines): Order Lines, associated with purchased products in an Order.
         Returns:
-            A supported list of unmodified lines associated with "Course ENtitlement" products.
+            A supported list of unmodified lines associated with "Course Entitlement" products.
         """
         return [line for line in lines if self.supports_line(line)]
 
-    def fulfill_product(self, order, lines):
+    def fulfill_product(self, order, lines, email_opt_in=False):
         """ Fulfills the purchase of a 'Course Entitlement'.
         Uses the order and the lines to determine which courses to grant an entitlement for, and with certain
         certificate types. May result in an error if the Entitlement API cannot be reached, or if there is
         additional business logic errors when trying grant the entitlement.
+
+        Updates the user's email preferences based on email_opt_in as a side effect.
+
         Args:
             order (Order): The Order associated with the lines to be fulfilled. The user associated with the order
                 is presumed to be the student to grant an entitlement.
             lines (List of Lines): Order Lines, associated with purchased products in an Order. These should only
                 be "Course Entitlement" products.
+            email_opt_in (bool): Whether the user should be opted in to emails
+                as part of the fulfillment. Defaults to False.
+
         Returns:
             The original set of lines, with new statuses set based on the success or failure of fulfillment.
         """
@@ -614,6 +643,7 @@ class CourseEntitlementFulfillmentModule(BaseFulfillmentModule):
                 'course_uuid': UUID,
                 'mode': mode,
                 'order_number': order.number,
+                'email_opt_in': email_opt_in,
             }
 
             try:
@@ -642,11 +672,13 @@ class CourseEntitlementFulfillmentModule(BaseFulfillmentModule):
                 logger.exception(
                     'Unable to fulfill line [%d] of order [%s] due to a network problem', line.id, order.number
                 )
+                order.notes.create(message='Fulfillment of order failed due to a network problem.', note_type='Error')
                 line.set_status(LINE.FULFILLMENT_NETWORK_ERROR)
             except Exception:  # pylint: disable=broad-except
                 logger.exception(
                     'Unable to fulfill line [%d] of order [%s]', line.id, order.number
                 )
+                order.notes.create(message='Fulfillment of order failed due to an Exception.', note_type='Error')
                 line.set_status(LINE.FULFILLMENT_SERVER_ERROR)
 
         logger.info('Finished fulfilling "Course Entitlement" product types for order [%s]', order.number)

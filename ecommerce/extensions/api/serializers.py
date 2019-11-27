@@ -8,25 +8,35 @@ import waffle
 from dateutil.parser import parse
 from django.contrib.auth import get_user_model
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.translation import ugettext_lazy as _
 from oscar.core.loading import get_class, get_model
 from rest_framework import serializers
 from rest_framework.reverse import reverse
 
-from ecommerce.core.constants import COURSE_ID_REGEX, ENROLLMENT_CODE_SWITCH, ISO_8601_FORMAT, SEAT_PRODUCT_CLASS_NAME
+from ecommerce.core.constants import (
+    COURSE_ENTITLEMENT_PRODUCT_CLASS_NAME,
+    COURSE_ID_REGEX,
+    ISO_8601_FORMAT,
+    SEAT_PRODUCT_CLASS_NAME
+)
 from ecommerce.core.url_utils import get_ecommerce_url
 from ecommerce.courses.models import Course
+from ecommerce.entitlements.utils import create_or_update_course_entitlement
+from ecommerce.extensions.offer.constants import OFFER_ASSIGNMENT_REVOKED, OFFER_MAX_USES_DEFAULT
 from ecommerce.invoice.models import Invoice
 
 logger = logging.getLogger(__name__)
 
 Basket = get_model('basket', 'Basket')
+BasketLine = get_model('basket', 'Line')
 Benefit = get_model('offer', 'Benefit')
 BillingAddress = get_model('order', 'BillingAddress')
 Catalog = get_model('catalogue', 'Catalog')
 Category = get_model('catalogue', 'Category')
 Line = get_model('order', 'Line')
+OfferAssignment = get_model('offer', 'OfferAssignment')
 Order = get_model('order', 'Order')
 Partner = get_model('partner', 'Partner')
 Product = get_model('catalogue', 'Product')
@@ -36,6 +46,7 @@ Refund = get_model('refund', 'Refund')
 Selector = get_class('partner.strategy', 'Selector')
 StockRecord = get_model('partner', 'StockRecord')
 Voucher = get_model('voucher', 'Voucher')
+VoucherApplication = get_model('voucher', 'VoucherApplication')
 User = get_user_model()
 
 COURSE_DETAIL_VIEW = 'api:v2:course-detail'
@@ -54,7 +65,18 @@ def is_enrollment_code(obj):
 
 def retrieve_benefit(obj):
     """Helper method to retrieve the benefit from voucher. """
-    return retrieve_voucher(obj).benefit
+    return retrieve_offer(obj).benefit
+
+
+def retrieve_condition(obj):
+    """Helper method to retrieve the benefit from voucher. """
+    return retrieve_offer(obj).condition
+
+
+def retrieve_enterprise_condition(obj):
+    """Helper method to retrieve the benefit from voucher. """
+    enterprise_offer = retrieve_enterprise_offer(obj)
+    return enterprise_offer and enterprise_offer.condition
 
 
 def retrieve_end_date(obj):
@@ -64,12 +86,22 @@ def retrieve_end_date(obj):
 
 def retrieve_offer(obj):
     """Helper method to retrieve the offer from coupon. """
-    return retrieve_voucher(obj).offers.first()
+    return retrieve_voucher(obj).best_offer
+
+
+def retrieve_original_offer(obj):
+    """Helper method to retrieve the offer from coupon. """
+    return retrieve_voucher(obj).original_offer
+
+
+def retrieve_enterprise_offer(obj):
+    """Helper method to retrieve the offer from coupon. """
+    return retrieve_voucher(obj).enterprise_offer
 
 
 def retrieve_range(obj):
     """Helper method to retrieve the range from coupon."""
-    return retrieve_offer(obj).condition.range
+    return retrieve_original_offer(obj).condition.range
 
 
 def retrieve_quantity(obj):
@@ -95,6 +127,11 @@ def retrieve_all_vouchers(obj):
 def retrieve_voucher_usage(obj):
     """Helper method to retrieve usage from voucher. """
     return retrieve_voucher(obj).usage
+
+
+def _flatten(attrs):
+    """Transform a list of attribute names and values into a dictionary keyed on the names."""
+    return {attr['name']: attr['value'] for attr in attrs}
 
 
 class ProductPaymentInfoMixin(serializers.ModelSerializer):
@@ -264,6 +301,67 @@ class OrderSerializer(serializers.ModelSerializer):
         )
 
 
+class BasketSerializer(serializers.ModelSerializer):
+    """Serializer for parsing basket data."""
+    owner = UserSerializer()
+    products = serializers.SerializerMethodField()
+    vouchers = serializers.SerializerMethodField()
+    payment_status = serializers.SerializerMethodField()
+    payment_processor = serializers.SerializerMethodField()
+
+    def get_vouchers(self, obj):
+        try:
+            serializer = VoucherSerializer(
+                obj.vouchers.all(), many=True, context={'request': self.context['request']}
+            )
+            return serializer.data
+        except (AttributeError, ValueError):
+            return None
+
+    def get_payment_status(self, obj):
+        successful_payment_notifications = obj.paymentprocessorresponse_set.filter(
+            Q(response__contains='ACCEPT') | Q(response__contains='approved')
+        )
+        if successful_payment_notifications:
+            return "Accepted"
+        return "Declined"
+
+    def get_payment_processor(self, obj):
+        payment_notifications = obj.paymentprocessorresponse_set.filter(transaction_id__isnull=False)
+        if payment_notifications:
+            return payment_notifications[0].processor_name
+        return "None"
+
+    def get_products(self, obj):
+        lines = BasketLine.objects.filter(basket=obj)
+        products = [line.product for line in lines]
+        serialized_data = []
+        for product in products:
+
+            serialized_data.append(ProductAttributeValueSerializer(
+                product.attr,
+                many=True,
+                read_only=True,
+                context={'request': self.context['request']}
+            ).data)
+        # return serializer.data
+        # serializer = ProductSerializer(products, many=True, context={'request': self.context['request']})
+        return serialized_data
+
+    class Meta(object):
+        model = Basket
+        fields = (
+            'id',
+            'status',
+            'owner',
+            'order_number',
+            'products',
+            'vouchers',
+            'payment_status',
+            'payment_processor',
+        )
+
+
 class PaymentProcessorSerializer(serializers.Serializer):  # pylint: disable=abstract-method
     """ Serializer to use with instances of processors.BasePaymentProcessor """
 
@@ -317,6 +415,75 @@ class CourseSerializer(serializers.HyperlinkedModelSerializer):
         }
 
 
+class EntitlementProductHelper(object):
+    @staticmethod
+    def validate(product):
+        attrs = _flatten(product['attribute_values'])
+
+        if 'certificate_type' not in attrs:
+            raise serializers.ValidationError(_(u"Products must have a certificate type."))
+
+        if 'price' not in product:
+            raise serializers.ValidationError(_(u"Products must have a price."))
+
+    @staticmethod
+    def save(partner, course, uuid, product):
+        attrs = _flatten(product['attribute_values'])
+
+        if not uuid:
+            raise Exception(_(u"You need to provide a course UUID to create Course Entitlements."))
+
+        # Extract arguments required for Seat creation, deserializing as necessary.
+        certificate_type = attrs.get('certificate_type')
+        price = Decimal(product['price'])
+
+        create_or_update_course_entitlement(
+            certificate_type,
+            price,
+            partner,
+            uuid,
+            course.name
+        )
+
+
+class SeatProductHelper(object):
+    @staticmethod
+    def validate(product):
+        attrs = _flatten(product['attribute_values'])
+        if attrs.get('id_verification_required') is None:
+            raise serializers.ValidationError(_(u"Products must indicate whether ID verification is required."))
+
+        # Verify that a price is present.
+        if product.get('price') is None:
+            raise serializers.ValidationError(_(u"Products must have a price."))
+
+    @staticmethod
+    def save(course, product, create_enrollment_code):
+        attrs = _flatten(product['attribute_values'])
+
+        # Extract arguments required for Seat creation, deserializing as necessary.
+        certificate_type = attrs.get('certificate_type', '')
+        id_verification_required = attrs['id_verification_required']
+        price = Decimal(product['price'])
+
+        # Extract arguments which are optional for Seat creation, deserializing as necessary.
+        expires = product.get('expires')
+        expires = parse(expires) if expires else None
+        credit_provider = attrs.get('credit_provider')
+        credit_hours = attrs.get('credit_hours')
+        credit_hours = int(credit_hours) if credit_hours else None
+
+        course.create_or_update_seat(
+            certificate_type,
+            id_verification_required,
+            price,
+            expires=expires,
+            credit_provider=credit_provider,
+            credit_hours=credit_hours,
+            create_enrollment_code=create_enrollment_code
+        )
+
+
 class AtomicPublicationSerializer(serializers.Serializer):  # pylint: disable=abstract-method
     """Serializer for saving and publishing a Course and associated products.
 
@@ -324,11 +491,12 @@ class AtomicPublicationSerializer(serializers.Serializer):  # pylint: disable=ab
     The automatically applied validation logic rejects course IDs which already exist in the database.
     """
     id = serializers.RegexField(COURSE_ID_REGEX, max_length=255)
+    uuid = serializers.UUIDField(required=False)
     name = serializers.CharField(max_length=255)
+
     # Verification deadline should only be required if the course actually requires verification.
     verification_deadline = serializers.DateTimeField(required=False, allow_null=True)
     products = serializers.ListField()
-    create_or_activate_enrollment_code = serializers.BooleanField()
 
     def __init__(self, *args, **kwargs):
         super(AtomicPublicationSerializer, self).__init__(*args, **kwargs)
@@ -337,21 +505,16 @@ class AtomicPublicationSerializer(serializers.Serializer):  # pylint: disable=ab
     def validate_products(self, products):
         """Validate product data."""
         for product in products:
-            # Verify that each product is intended to be a Seat.
             product_class = product.get('product_class')
-            if product_class != SEAT_PRODUCT_CLASS_NAME:
+
+            if product_class == COURSE_ENTITLEMENT_PRODUCT_CLASS_NAME:
+                EntitlementProductHelper.validate(product)
+            elif product_class == SEAT_PRODUCT_CLASS_NAME:
+                SeatProductHelper.validate(product)
+            else:
                 raise serializers.ValidationError(
-                    _(u"Invalid product class [{product_class}] requested.".format(product_class=product_class))
+                    _(u"Invalid product class [{product_class}] requested.").format(product_class=product_class)
                 )
-
-            # Verify that attributes required to create a Seat are present.
-            attrs = self._flatten(product['attribute_values'])
-            if attrs.get('id_verification_required') is None:
-                raise serializers.ValidationError(_(u"Products must indicate whether ID verification is required."))
-
-            # Verify that a price is present.
-            if product.get('price') is None:
-                raise serializers.ValidationError(_(u"Products must have a price."))
 
         return products
 
@@ -371,9 +534,11 @@ class AtomicPublicationSerializer(serializers.Serializer):  # pylint: disable=ab
                 if one was raised (else None), and a message for the user, if necessary (else None).
         """
         course_id = self.validated_data['id']
+        course_uuid = self.validated_data.get('uuid')
         course_name = self.validated_data['name']
         course_verification_deadline = self.validated_data.get('verification_deadline')
-        create_or_activate_enrollment_code = self.validated_data.get('create_or_activate_enrollment_code')
+        # ENT-803: by default enable enrollment code creation
+        create_or_activate_enrollment_code = True
         products = self.validated_data['products']
         partner = self.get_partner()
 
@@ -390,42 +555,23 @@ class AtomicPublicationSerializer(serializers.Serializer):  # pylint: disable=ab
             # Explicitly delimit operations which will be rolled back if an exception is raised.
             with transaction.atomic():
                 site = self.context['request'].site
-                course, created = Course.objects.get_or_create(id=course_id, site=site)
+                course, created = Course.objects.get_or_create(
+                    id=course_id, partner=site.siteconfiguration.partner
+                )
                 course.name = course_name
                 course.verification_deadline = course_verification_deadline
                 course.save()
 
-                create_enrollment_code = False
-                if waffle.switch_is_active(ENROLLMENT_CODE_SWITCH) and site.siteconfiguration.enable_enrollment_codes:
-                    create_enrollment_code = create_or_activate_enrollment_code
-
                 for product in products:
-                    attrs = self._flatten(product['attribute_values'])
-                    # Extract arguments required for Seat creation, deserializing as necessary.
-                    certificate_type = attrs.get('certificate_type', '')
-                    id_verification_required = attrs['id_verification_required']
-                    price = Decimal(product['price'])
+                    product_class = product.get('product_class')
 
-                    # Extract arguments which are optional for Seat creation, deserializing as necessary.
-                    expires = product.get('expires')
-                    expires = parse(expires) if expires else None
-                    credit_provider = attrs.get('credit_provider')
-                    credit_hours = attrs.get('credit_hours')
-                    credit_hours = int(credit_hours) if credit_hours else None
-
-                    course.create_or_update_seat(
-                        certificate_type,
-                        id_verification_required,
-                        price,
-                        partner,
-                        expires=expires,
-                        credit_provider=credit_provider,
-                        credit_hours=credit_hours,
-                        create_enrollment_code=create_enrollment_code
-                    )
+                    if product_class == COURSE_ENTITLEMENT_PRODUCT_CLASS_NAME:
+                        EntitlementProductHelper.save(partner, course, course_uuid, product)
+                    elif product_class == SEAT_PRODUCT_CLASS_NAME:
+                        SeatProductHelper.save(course, product, create_or_activate_enrollment_code)
 
                 if course.get_enrollment_code():
-                    course.toggle_enrollment_code_status(is_active=create_enrollment_code)
+                    course.toggle_enrollment_code_status(is_active=create_or_activate_enrollment_code)
 
                 resp_message = course.publish_to_lms()
                 published = (resp_message is None)
@@ -438,10 +584,6 @@ class AtomicPublicationSerializer(serializers.Serializer):  # pylint: disable=ab
         except Exception as e:  # pylint: disable=broad-except
             logger.exception(u'Failed to save and publish [%s]: [%s]', course_id, e.message)
             return False, e, e.message
-
-    def _flatten(self, attrs):
-        """Transform a list of attribute names and values into a dictionary keyed on the names."""
-        return {attr['name']: attr['value'] for attr in attrs}
 
 
 class PartnerSerializer(serializers.ModelSerializer):
@@ -502,7 +644,7 @@ class VoucherSerializer(serializers.ModelSerializer):
         return obj.is_available_to_user(user=request.user)
 
     def get_benefit(self, obj):
-        benefit = obj.offers.first().benefit
+        benefit = obj.best_offer.benefit
         return BenefitSerializer(benefit).data
 
     def get_redeem_url(self, obj):
@@ -515,6 +657,39 @@ class VoucherSerializer(serializers.ModelSerializer):
             'id', 'name', 'code', 'redeem_url', 'usage', 'start_datetime', 'end_datetime', 'num_basket_additions',
             'num_orders', 'total_discount', 'date_created', 'offers', 'is_available_to_user', 'benefit'
         )
+
+
+class CouponVoucherSerializer(serializers.Serializer):  # pylint: disable=abstract-method
+    code = serializers.SerializerMethodField()
+    assigned_to = serializers.SerializerMethodField()
+    redeem_url = serializers.SerializerMethodField()
+    redemptions = serializers.SerializerMethodField()
+
+    def get_code(self, voucher):
+        return voucher.code
+
+    def get_redeem_url(self, obj):
+        url = get_ecommerce_url('/coupons/offer/')
+        return '{url}?code={code}'.format(url=url, code=obj.code)
+
+    def get_assigned_to(self, obj):  # pylint: disable=unused-argument
+        return ''
+
+    def get_redemptions(self, voucher):
+        offer = voucher.best_offer
+        redemption_count = voucher.num_orders
+
+        if voucher.usage == Voucher.SINGLE_USE:
+            max_coupon_usage = 1
+        elif voucher.usage != Voucher.SINGLE_USE and offer.max_global_applications is None:
+            max_coupon_usage = OFFER_MAX_USES_DEFAULT
+        else:
+            max_coupon_usage = offer.max_global_applications
+
+        return {
+            'used': redemption_count,
+            'available': max_coupon_usage,
+        }
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -547,6 +722,98 @@ class CouponListSerializer(serializers.ModelSerializer):
         fields = ('category', 'client', 'code', 'id', 'title', 'date_created')
 
 
+class EnterpriseCouponOverviewListSerializer(serializers.ModelSerializer):
+    """
+    Serializer for Enterprise Coupons list overview.
+    """
+    end_date = serializers.SerializerMethodField()
+    has_error = serializers.SerializerMethodField()
+    max_uses = serializers.SerializerMethodField()
+    num_codes = serializers.SerializerMethodField()
+    num_unassigned = serializers.SerializerMethodField()
+    num_uses = serializers.SerializerMethodField()
+    start_date = serializers.SerializerMethodField()
+    usage_limitation = serializers.SerializerMethodField()
+
+    # TODO: ENT-1184
+    def get_num_unassigned(self, obj):  # pylint: disable=unused-argument
+        return 0
+
+    # TODO: ENT-1184
+    def get_has_error(self, obj):   # pylint: disable=unused-argument
+        return False
+
+    # Max number of codes available (Maximum Coupon Usage).
+    def get_max_uses(self, obj):
+        offer = retrieve_offer(obj)
+        return offer.max_global_applications
+
+    # Redemption count.
+    def get_num_uses(self, obj):
+        voucher = retrieve_voucher(obj)
+        return voucher.num_orders
+
+    # Number of codes.
+    def get_num_codes(self, obj):
+        return retrieve_quantity(obj)
+
+    # Usage Limitation (Maximum # of usages per code).
+    def get_usage_limitation(self, obj):
+        return retrieve_voucher_usage(obj)
+
+    def get_start_date(self, obj):
+        return retrieve_start_date(obj)
+
+    def get_end_date(self, obj):
+        return retrieve_end_date(obj)
+
+    class Meta(object):
+        model = Product
+        fields = (
+            'end_date', 'has_error', 'id', 'max_uses', 'num_codes', 'num_unassigned',
+            'num_uses', 'start_date', 'title', 'usage_limitation'
+        )
+
+
+class EnterpriseCouponListSerializer(serializers.ModelSerializer):
+    client = serializers.SerializerMethodField()
+    enterprise_customer = serializers.SerializerMethodField()
+    enterprise_customer_catalog = serializers.SerializerMethodField()
+    code_status = serializers.SerializerMethodField()
+
+    def get_client(self, obj):
+        return Invoice.objects.get(order__lines__product=obj).business_client.name
+
+    def get_enterprise_customer(self, obj):
+        """ Get the Enterprise Customer UUID attached to a coupon. """
+        offer_condition = retrieve_enterprise_condition(obj)
+        return offer_condition and offer_condition.enterprise_customer_uuid
+
+    def get_enterprise_customer_catalog(self, obj):
+        """ Get the Enterprise Customer Catalog UUID attached to a coupon. """
+        offer_condition = retrieve_enterprise_condition(obj)
+        return offer_condition and offer_condition.enterprise_customer_catalog_uuid
+
+    def get_code_status(self, obj):
+        start_date = retrieve_start_date(obj)
+        end_date = retrieve_end_date(obj)
+        current_datetime = timezone.now()
+        in_time_interval = start_date < current_datetime < end_date
+        return _('ACTIVE') if in_time_interval else _('INACTIVE')
+
+    class Meta(object):
+        model = Product
+        fields = (
+            'client',
+            'code_status',
+            'enterprise_customer',
+            'enterprise_customer_catalog',
+            'id',
+            'title',
+            'date_created',
+        )
+
+
 class CouponSerializer(ProductPaymentInfoMixin, serializers.ModelSerializer):
     """ Serializer for Coupons. """
     benefit_type = serializers.SerializerMethodField()
@@ -561,10 +828,12 @@ class CouponSerializer(ProductPaymentInfoMixin, serializers.ModelSerializer):
     course_seat_types = serializers.SerializerMethodField()
     email_domains = serializers.SerializerMethodField()
     enterprise_customer = serializers.SerializerMethodField()
+    enterprise_customer_catalog = serializers.SerializerMethodField()
     end_date = serializers.SerializerMethodField()
     last_edited = serializers.SerializerMethodField()
     max_uses = serializers.SerializerMethodField()
     note = serializers.SerializerMethodField()
+    notify_email = serializers.SerializerMethodField()
     num_uses = serializers.SerializerMethodField()
     payment_information = serializers.SerializerMethodField()
     program_uuid = serializers.SerializerMethodField()
@@ -630,7 +899,24 @@ class CouponSerializer(ProductPaymentInfoMixin, serializers.ModelSerializer):
     def get_enterprise_customer(self, obj):
         """ Get the Enterprise Customer UUID attached to a coupon. """
         offer_range = retrieve_range(obj)
-        return offer_range.enterprise_customer if offer_range else None
+        offer_condition = retrieve_condition(obj)
+        if offer_range and offer_range.enterprise_customer:
+            return offer_range.enterprise_customer
+        elif offer_condition.enterprise_customer_uuid:
+            return offer_condition.enterprise_customer_uuid
+        else:
+            return None
+
+    def get_enterprise_customer_catalog(self, obj):
+        """ Get the Enterprise Customer Catalog UUID attached to a coupon. """
+        offer_range = retrieve_range(obj)
+        offer_condition = retrieve_condition(obj)
+        if offer_range and offer_range.enterprise_customer_catalog:
+            return offer_range.enterprise_customer_catalog
+        elif offer_condition.enterprise_customer_catalog_uuid:
+            return offer_condition.enterprise_customer_catalog_uuid
+        else:
+            return None
 
     def get_last_edited(self, obj):
         return None, obj.date_updated
@@ -642,6 +928,12 @@ class CouponSerializer(ProductPaymentInfoMixin, serializers.ModelSerializer):
     def get_note(self, obj):
         try:
             return obj.attr.note
+        except AttributeError:
+            return None
+
+    def get_notify_email(self, obj):
+        try:
+            return obj.attr.notify_email
         except AttributeError:
             return None
 
@@ -689,9 +981,9 @@ class CouponSerializer(ProductPaymentInfoMixin, serializers.ModelSerializer):
         fields = (
             'benefit_type', 'benefit_value', 'catalog_query', 'course_catalog', 'category',
             'client', 'code', 'code_status', 'coupon_type', 'course_seat_types',
-            'email_domains', 'end_date', 'enterprise_customer', 'id', 'last_edited', 'max_uses',
-            'note', 'num_uses', 'payment_information', 'program_uuid', 'price', 'quantity',
-            'seats', 'start_date', 'title', 'voucher_type'
+            'email_domains', 'end_date', 'enterprise_customer', 'enterprise_customer_catalog',
+            'id', 'last_edited', 'max_uses', 'note', 'notify_email', 'num_uses', 'payment_information',
+            'program_uuid', 'price', 'quantity', 'seats', 'start_date', 'title', 'voucher_type'
         )
 
 
@@ -719,3 +1011,116 @@ class ProviderSerializer(serializers.Serializer):  # pylint: disable=abstract-me
     status_url = serializers.CharField()
     thumbnail_url = serializers.CharField()
     url = serializers.CharField()
+
+
+class OfferAssignmentSerializer(serializers.ModelSerializer):
+    class Meta(object):
+        model = OfferAssignment
+        fields = ('user_email', 'code')
+
+
+class CouponCodeAssignmentSerializer(serializers.Serializer):  # pylint: disable=abstract-method
+    codes = serializers.ListField(
+        child=serializers.CharField(), required=False, write_only=True
+    )
+    emails = serializers.ListField(
+        child=serializers.EmailField(), required=True, write_only=True
+    )
+    offer_assignments = serializers.ListField(
+        child=OfferAssignmentSerializer(), read_only=True
+    )
+
+    def create(self, validated_data):
+        """Create OfferAssignment objects for each email and the available_assignments determined from validation."""
+        emails = validated_data.get('emails')
+        voucher_usage_type = validated_data.pop('voucher_usage_type')
+        available_assignments = validated_data.pop('available_assignments')
+        email_iterator = iter(emails)
+        offer_assignments = []
+
+        for code in available_assignments:
+            offer = available_assignments[code]['offer']
+            email = next(email_iterator) if voucher_usage_type == Voucher.MULTI_USE_PER_CUSTOMER else None
+            for _ in range(available_assignments[code]['num_slots']):
+                offer_assignments.append(
+                    OfferAssignment.objects.create(
+                        offer=offer,
+                        code=code,
+                        user_email=email or next(email_iterator),
+                    )
+                )
+
+        validated_data['offer_assignments'] = offer_assignments
+        return validated_data
+
+    def validate(self, data):
+        """
+        Validate that the given emails can be assigned to a slot in the coupon, to the codes if specified.
+        A slot is a potential redemption of a voucher contained within the top level Coupon.
+        """
+        codes = data.get('codes')
+        emails = data.get('emails')
+        coupon = self.context.get('coupon')
+        available_assignments = {}
+        vouchers = coupon.attr.coupon_vouchers.vouchers
+
+        # Limit which vouchers to consider for assignment by the codes passed in.
+        if codes:
+            vouchers = vouchers.filter(code__in=codes)
+
+        # For ONCE_PER_CUSTOMER Coupons, exclude vouchers that have already
+        # been assigned to or redeemed by the requested emails.
+        voucher_usage_type = vouchers.first().usage
+        if voucher_usage_type == Voucher.ONCE_PER_CUSTOMER:
+            existing_assignments_for_users = OfferAssignment.objects.filter(user_email__in=emails).exclude(
+                status__in=OFFER_ASSIGNMENT_REVOKED
+            )
+            existing_applications_for_users = VoucherApplication.objects.filter(user__email__in=emails)
+            codes_to_exclude = (
+                [assignment.code for assignment in existing_assignments_for_users] +
+                [application.voucher.code for application in existing_applications_for_users]
+            )
+            emails_requiring_exclusions = (
+                [assignment.user_email for assignment in existing_assignments_for_users] +
+                [application.user.email for application in existing_applications_for_users]
+            )
+            logger.info(
+                'Excluding the following codes because they have been assigned to or redeemed by '
+                'at least one user in the given list of emails to assign to this coupon. '
+                'codes: %s, emails: %s, coupon_id: %s', codes_to_exclude, emails_requiring_exclusions, coupon.id
+            )
+            vouchers = vouchers.exclude(code__in=codes_to_exclude)
+
+        total_slots = 0
+        for voucher in vouchers.all():
+            available_slots = voucher.slots_available_for_assignment
+            # If there are no available slots for this voucher, skip it.
+            if available_slots < 1:
+                continue
+
+            if voucher_usage_type != Voucher.MULTI_USE_PER_CUSTOMER:
+                available_slots = min(available_slots, len(emails) - total_slots)
+
+            # If there are available slots, and we still have slots to fill,
+            # add information to the available_assignments dict.
+            if total_slots < len(emails):
+                # Keep track of which codes can be assigned how many times
+                # along with its corresponding ConditionalOffer.
+                available_assignments[voucher.code] = {'offer': voucher.enterprise_offer, 'num_slots': available_slots}
+
+                # For Multi use per customer vouchers, all of the slots must go to one user email,
+                # so for accounting purposes we only count one slot here towards the total.
+                if voucher_usage_type == Voucher.MULTI_USE_PER_CUSTOMER:
+                    total_slots += 1
+                else:
+                    total_slots += available_slots
+            else:
+                break
+        # If we got through all the vouchers and don't have enough slots for the emails given, the request isn't valid.
+        if total_slots < len(emails):
+            raise serializers.ValidationError('Not enough available codes for assignment!')
+
+        # Add available_assignments to the validated data so that we can perform the assignments in create.
+        data['voucher_usage_type'] = voucher_usage_type
+        data['available_assignments'] = available_assignments
+        return data

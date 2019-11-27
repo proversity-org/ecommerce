@@ -7,10 +7,10 @@ import six
 import waffle
 from django.contrib import messages
 from django.core.exceptions import ObjectDoesNotExist
-from django.core.urlresolvers import reverse
 from django.db import transaction
 from django.http import JsonResponse
 from django.shortcuts import redirect
+from django.urls import reverse
 from django.utils.decorators import method_decorator
 from django.utils.functional import cached_property
 from django.utils.safestring import mark_safe
@@ -26,16 +26,22 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from ecommerce.extensions.api.serializers import OrderSerializer
+from ecommerce.extensions.basket.utils import basket_add_organization_attribute
 from ecommerce.extensions.checkout.mixins import EdxOrderPlacementMixin
 from ecommerce.extensions.checkout.utils import get_receipt_page_url
-from ecommerce.extensions.payment.exceptions import DuplicateReferenceNumber, InvalidBasketError, InvalidSignatureError
+from ecommerce.extensions.payment.exceptions import (
+    AuthorizationError,
+    DuplicateReferenceNumber,
+    InvalidBasketError,
+    InvalidSignatureError
+)
 from ecommerce.extensions.payment.processors.cybersource import Cybersource
 from ecommerce.extensions.payment.utils import clean_field_value
 from ecommerce.extensions.payment.views import BasePaymentSubmitView
 
 logger = logging.getLogger(__name__)
 
-Applicator = get_class('offer.utils', 'Applicator')
+Applicator = get_class('offer.applicator', 'Applicator')
 Basket = get_model('basket', 'Basket')
 BillingAddress = get_model('order', 'BillingAddress')
 Country = get_model('address', 'Country')
@@ -54,6 +60,7 @@ class CyberSourceProcessorMixin(object):
 
 class OrderCreationMixin(EdxOrderPlacementMixin):
     def create_order(self, request, basket, billing_address):
+        order_number = OrderNumberGenerator().order_number(basket)
         try:
             # Note (CCB): In the future, if we do end up shipping physical products, we will need to
             # properly implement shipping methods. For more, see
@@ -65,7 +72,6 @@ class OrderCreationMixin(EdxOrderPlacementMixin):
             # thus we use the amounts stored in the database rather than those received from the payment processor.
             order_total = OrderTotalCalculator().calculate(basket, shipping_charge)
             user = basket.owner
-            order_number = OrderNumberGenerator().order_number(basket)
 
             return self.handle_order_placement(
                 order_number,
@@ -78,8 +84,8 @@ class OrderCreationMixin(EdxOrderPlacementMixin):
                 order_total,
                 request=request
             )
-        except:  # pylint: disable=bare-except
-            logger.exception(self.order_placement_failure_msg, basket.id)
+        except Exception:  # pylint: disable=broad-except
+            self.log_order_placement_exception(order_number, basket.id)
             raise
 
 
@@ -135,6 +141,8 @@ class CybersourceSubmitView(BasePaymentSubmitView):
         # Ensure that the response can be properly rendered so that we
         # don't have to deal with thawing the basket in the event of an error.
         response = JsonResponse({'form_fields': parameters})
+
+        basket_add_organization_attribute(basket, data)
 
         # Freeze the basket since the user is paying for it now.
         basket.freeze()
@@ -239,38 +247,44 @@ class CybersourceNotificationMixin(CyberSourceProcessorMixin, OrderCreationMixin
             except (UserCancelled, TransactionDeclined) as exception:
                 logger.info(
                     'CyberSource payment did not complete for basket [%d] because [%s]. '
-                    'The payment response was recorded in entry [%d].',
+                    'The payment response [%s] was recorded in entry [%d].',
                     basket.id,
                     exception.__class__.__name__,
+                    notification.get("message", "Unknown Error"),
                     ppr.id
                 )
                 raise
             except DuplicateReferenceNumber:
-                if Order.objects.filter(number=order_number).exists() or PaymentProcessorResponse.objects.filter(
-                        basket=basket).exclude(transaction_id__isnull=True).exclude(transaction_id='').exists():
-                    logger.info(
-                        'Received CyberSource payment notification for basket [%d] which is associated '
-                        'with existing order [%s] or had an existing valid payment notification. '
-                        'No payment was collected, and no new order will be created.',
-                        basket.id,
-                        order_number
-                    )
-                else:
-                    logger.info(
-                        'Received duplicate CyberSource payment notification for basket [%d] which is not associated '
-                        'with any existing order (Missing Order Issue)',
-                        basket.id,
-                    )
+                logger.info(
+                    'Received CyberSource payment notification for basket [%d] which is associated '
+                    'with existing order [%s]. No payment was collected, and no new order will be created.',
+                    basket.id,
+                    order_number
+                )
                 raise
+            except AuthorizationError:
+                logger.info(
+                    'Payment Authorization was declined for basket [%d]. The payment response was '
+                    'recorded in entry [%d].',
+                    basket.id,
+                    ppr.id,
+                )
             except PaymentError:
                 logger.exception(
-                    'CyberSource payment failed for basket [%d]. The payment response was recorded in entry [%d].',
+                    'CyberSource payment failed for basket [%d]. The payment response [%s] was recorded in entry [%d].',
                     basket.id,
+                    notification.get("message", "Unknown Error"),
                     ppr.id
                 )
                 raise
             except:  # pylint: disable=bare-except
-                logger.exception('Attempts to handle payment for basket [%d] failed.', basket.id)
+                logger.exception(
+                    'Attempts to handle payment for basket [%d] failed. The payment response [%s] was recorded in'
+                    ' entry [%d].',
+                    basket.id,
+                    notification.get("message", "Unknown Error"),
+                    ppr.id
+                )
                 raise
 
         return basket
@@ -320,7 +334,8 @@ class CybersourceInterstitialView(CybersourceNotificationMixin, View):
             return redirect(reverse('payment_error'))
 
         try:
-            self.create_order(request, basket, self._get_billing_address(notification))
+            order = self.create_order(request, basket, self._get_billing_address(notification))
+            self.handle_post_order(order)
 
             return self.redirect_to_receipt_page(notification)
         except:  # pylint: disable=bare-except

@@ -1,25 +1,41 @@
 from __future__ import unicode_literals
 
+import logging
 import re
 
+import waffle
 from django.conf import settings
-from django.core.cache import cache
 from django.db import models
 from django.utils.translation import ugettext_lazy as _
+from django_extensions.db.models import TimeStampedModel
+from edx_django_utils.cache import TieredCache
 from oscar.apps.offer.abstract_models import (
     AbstractBenefit,
     AbstractCondition,
     AbstractConditionalOffer,
     AbstractRange
 )
+from oscar.core.loading import get_model
 from requests.exceptions import ConnectionError, Timeout
 from slumber.exceptions import SlumberBaseException
 from threadlocals.threadlocals import get_current_request
 
 from ecommerce.core.utils import get_cache_key, log_message_and_raise_validation_error
+from ecommerce.enterprise.constants import ENTERPRISE_OFFERS_FOR_COUPONS_SWITCH
+from ecommerce.extensions.offer.constants import (
+    OFFER_ASSIGNED,
+    OFFER_ASSIGNMENT_EMAIL_BOUNCED,
+    OFFER_ASSIGNMENT_EMAIL_PENDING,
+    OFFER_ASSIGNMENT_REVOKED,
+    OFFER_REDEEMED
+)
 
 OFFER_PRIORITY_ENTERPRISE = 10
 OFFER_PRIORITY_VOUCHER = 20
+
+logger = logging.getLogger(__name__)
+
+Voucher = get_model('voucher', 'Voucher')
 
 
 class Benefit(AbstractBenefit):
@@ -37,6 +53,104 @@ class Benefit(AbstractBenefit):
                 'Failed to create Benefit. Benefit value may not be a negative number.'
             )
 
+    def clean_percentage(self):
+        if not self.range:
+            log_message_and_raise_validation_error('Percentage benefits require a product range')
+        if self.value > 100:
+            log_message_and_raise_validation_error('Percentage discount cannot be greater than 100')
+
+    def _filter_for_paid_course_products(self, lines, applicable_range):
+        """" Filters out products that aren't seats or entitlements or that don't have a paid certificate type. """
+        return [
+            line for line in lines
+            if (line.product.is_seat_product or line.product.is_course_entitlement_product) and
+            hasattr(line.product.attr, 'certificate_type') and
+            line.product.attr.certificate_type.lower() in applicable_range.course_seat_types
+        ]
+
+    def _identify_uncached_product_identifiers(self, lines, domain, partner_code, query):
+        """
+        Checks the cache to see if each line is in the catalog range specified by the given query
+        and tracks identifiers for which discovery service data is still needed.
+        """
+        uncached_course_run_ids = []
+        uncached_course_uuids = []
+
+        applicable_lines = lines
+        for line in applicable_lines:
+            if line.product.is_seat_product:
+                product_id = line.product.course.id
+            else:  # All lines passed to this method should either have a seat or an entitlement product
+                product_id = line.product.attr.UUID
+
+            cache_key = get_cache_key(
+                site_domain=domain,
+                partner_code=partner_code,
+                resource='catalog_query.contains',
+                course_id=product_id,
+                query=query
+            )
+            in_catalog_range_cached_response = TieredCache.get_cached_response(cache_key)
+
+            if not in_catalog_range_cached_response.is_found:
+                if line.product.is_seat_product:
+                    uncached_course_run_ids.append({'id': product_id, 'cache_key': cache_key, 'line': line})
+                else:
+                    uncached_course_uuids.append({'id': product_id, 'cache_key': cache_key, 'line': line})
+            elif not in_catalog_range_cached_response.value:
+                applicable_lines.remove(line)
+
+        return uncached_course_run_ids, uncached_course_uuids, applicable_lines
+
+    def get_applicable_lines(self, offer, basket, range=None):  # pylint: disable=redefined-builtin
+        """
+        Returns the basket lines for which the benefit is applicable.
+        """
+        applicable_range = range if range else self.range
+
+        if applicable_range and applicable_range.catalog_query is not None:
+
+            query = applicable_range.catalog_query
+            applicable_lines = self._filter_for_paid_course_products(basket.all_lines(), applicable_range)
+
+            site = basket.site
+            partner_code = site.siteconfiguration.partner.short_code
+            course_run_ids, course_uuids, applicable_lines = self._identify_uncached_product_identifiers(
+                applicable_lines, site.domain, partner_code, query
+            )
+
+            if course_run_ids or course_uuids:
+                # Hit Discovery Service to determine if remaining courses and runs are in the range.
+                try:
+                    response = site.siteconfiguration.discovery_api_client.catalog.query_contains.get(
+                        course_run_ids=','.join([metadata['id'] for metadata in course_run_ids]),
+                        course_uuids=','.join([metadata['id'] for metadata in course_uuids]),
+                        query=query,
+                        partner=partner_code
+                    )
+                except Exception as err:  # pylint: disable=bare-except
+                    logger.warning(
+                        '%s raised while attempting to contact Discovery Service for offer catalog_range data.', err
+                    )
+                    raise Exception('Failed to contact Discovery Service to retrieve offer catalog_range data.')
+
+                # Cache range-state individually for each course or run identifier and remove lines not in the range.
+                for metadata in course_run_ids + course_uuids:
+                    in_range = response[str(metadata['id'])]
+
+                    # Convert to int, because this is what memcached will return, and the request cache should return
+                    # the same value.
+                    # Note: once the TieredCache is fixed to handle this case, we could remove this line.
+                    in_range = int(in_range)
+                    TieredCache.set_all_tiers(metadata['cache_key'], in_range, settings.COURSES_API_CACHE_TIMEOUT)
+
+                    if not in_range:
+                        applicable_lines.remove(metadata['line'])
+
+            return [(line.product.stockrecords.first().price_excl_tax, line) for line in applicable_lines]
+        else:
+            return super(Benefit, self).get_applicable_lines(offer, basket, range=range)  # pylint: disable=bad-super-call
+
 
 class ConditionalOffer(AbstractConditionalOffer):
     UPDATABLE_OFFER_FIELDS = ['email_domains', 'max_uses']
@@ -44,6 +158,7 @@ class ConditionalOffer(AbstractConditionalOffer):
     site = models.ForeignKey(
         'sites.Site', verbose_name=_('Site'), null=True, blank=True, default=None
     )
+    partner = models.ForeignKey('partner.Partner', null=True, blank=True)
 
     def save(self, *args, **kwargs):
         self.clean()
@@ -138,7 +253,7 @@ class ConditionalOffer(AbstractConditionalOffer):
         if self.email_domains:
             for domain in self.email_domains.split(','):
                 pattern = r'(?P<username>.+)@(?P<subdomain>\w+\.)*{domain}'.format(domain=domain)
-                match = re.match(pattern, email)
+                match = re.match(pattern, email, re.IGNORECASE)
                 if match and match.group(0) == email:
                     return True
             return False
@@ -149,8 +264,22 @@ class ConditionalOffer(AbstractConditionalOffer):
         In addition to Oscar's check to see if the condition is satisfied,
         a check for if basket owners email domain is within the allowed email domains.
         """
-        if not self.is_email_valid(basket.owner.email):
+        if basket.owner and not self.is_email_valid(basket.owner.email):
             return False
+
+        if (self.benefit.range and self.benefit.range.enterprise_customer and
+                waffle.switch_is_active(ENTERPRISE_OFFERS_FOR_COUPONS_SWITCH)):
+            # If we are using enterprise conditional offers for enterprise coupons, the old style offer is not used.
+            return False
+
+        if self.benefit.range and self.benefit.range.catalog_query:
+            # The condition is only satisfied if all basket lines are in the offer range
+            num_lines = basket.all_lines().count()
+            voucher = self.get_voucher()
+            if voucher and num_lines > 1 and voucher.usage != Voucher.MULTI_USE:
+                return False
+            return len(self.benefit.get_applicable_lines(self, basket)) == num_lines
+
         return super(ConditionalOffer, self).is_condition_satisfied(basket)  # pylint: disable=bad-super-call
 
 
@@ -178,6 +307,7 @@ class Range(AbstractRange):
         'course_seat_types',
         'course_catalog',
         'enterprise_customer',
+        'enterprise_customer_catalog',
     ]
     ALLOWED_SEAT_TYPES = ['credit', 'professional', 'verified']
     catalog = models.ForeignKey(
@@ -191,6 +321,12 @@ class Range(AbstractRange):
     )
     enterprise_customer = models.UUIDField(
         help_text=_('UUID for an EnterpriseCustomer from the Enterprise Service.'),
+        null=True,
+        blank=True,
+    )
+
+    enterprise_customer_catalog = models.UUIDField(
+        help_text=_('UUID for an EnterpriseCustomerCatalog from the Enterprise Service.'),
         null=True,
         blank=True,
     )
@@ -225,33 +361,6 @@ class Range(AbstractRange):
         if self.course_seat_types:
             validate_credit_seat_type(self.course_seat_types)
 
-    def run_catalog_query(self, product):
-        """
-        Retrieve the results from running the query contained in catalog_query field.
-        """
-        request = get_current_request()
-        partner_code = request.site.siteconfiguration.partner.short_code
-        cache_key = get_cache_key(
-            site_domain=request.site.domain,
-            partner_code=partner_code,
-            resource='course_runs.contains',
-            course_id=product.course_id,
-            query=self.catalog_query
-        )
-        response = cache.get(cache_key)
-        if not response:  # pragma: no cover
-            try:
-                response = request.site.siteconfiguration.discovery_api_client.course_runs.contains.get(
-                    query=self.catalog_query,
-                    course_run_ids=product.course_id,
-                    partner=partner_code
-                )
-                cache.set(cache_key, response, settings.COURSES_API_CACHE_TIMEOUT)
-            except:  # pylint: disable=bare-except
-                raise Exception('Could not contact Discovery Service.')
-
-        return response
-
     def catalog_contains_product(self, product):
         """
         Retrieve the results from using the catalog contains endpoint for
@@ -266,19 +375,21 @@ class Range(AbstractRange):
             course_id=product.course_id,
             catalog_id=self.course_catalog
         )
-        response = cache.get(cache_key)
-        if not response:
-            discovery_api_client = request.site.siteconfiguration.discovery_api_client
-            try:
-                # GET: /api/v1/catalogs/{catalog_id}/contains?course_run_id={course_run_ids}
-                response = discovery_api_client.catalogs(self.course_catalog).contains.get(
-                    course_run_id=product.course_id
-                )
-                cache.set(cache_key, response, settings.COURSES_API_CACHE_TIMEOUT)
-            except (ConnectionError, SlumberBaseException, Timeout):
-                raise Exception('Unable to connect to Discovery Service for catalog contains endpoint.')
+        cached_response = TieredCache.get_cached_response(cache_key)
+        if cached_response.is_found:
+            return cached_response.value
 
-        return response
+        discovery_api_client = request.site.siteconfiguration.discovery_api_client
+        try:
+            # GET: /api/v1/catalogs/{catalog_id}/contains?course_run_id={course_run_ids}
+            response = discovery_api_client.catalogs(self.course_catalog).contains.get(
+                course_run_id=product.course_id
+            )
+
+            TieredCache.set_all_tiers(cache_key, response, settings.COURSES_API_CACHE_TIMEOUT)
+            return response
+        except (ConnectionError, SlumberBaseException, Timeout):
+            raise Exception('Unable to connect to Discovery Service for catalog contains endpoint.')
 
     def contains_product(self, product):
         """
@@ -292,13 +403,6 @@ class Range(AbstractRange):
                 # Range can have a catalog query and 'regular' products in it,
                 # therefor an OR is used to check for both possibilities.
                 return ((response['courses'][product.course_id]) or
-                        super(Range, self).contains_product(product))  # pylint: disable=bad-super-call
-        elif self.catalog_query and self.course_seat_types:
-            if product.attr.certificate_type.lower() in self.course_seat_types:  # pylint: disable=unsupported-membership-test
-                response = self.run_catalog_query(product)
-                # Range can have a catalog query and 'regular' products in it,
-                # therefor an OR is used to check for both possibilities.
-                return ((response['course_runs'][product.course_id]) or
                         super(Range, self).contains_product(product))  # pylint: disable=bad-super-call
         elif self.catalog:
             return (
@@ -340,7 +444,50 @@ class Condition(AbstractCondition):
         blank=True,
         verbose_name=_('EnterpriseCustomerCatalog UUID')
     )
-    program_uuid = models.UUIDField(null=True, blank=True, verbose_name=_('Program UUID'))
+    program_uuid = models.UUIDField(
+        null=True,
+        blank=True,
+        verbose_name=_('Program UUID')
+    )
+    # TODO: journals dependency
+    journal_bundle_uuid = models.UUIDField(
+        null=True,
+        blank=True,
+        verbose_name=_('JournalBundle UUID')
+    )
+
+
+class OfferAssignment(TimeStampedModel):
+    STATUS_CHOICES = (
+        (OFFER_ASSIGNMENT_EMAIL_PENDING, _("Email to user pending.")),
+        (OFFER_ASSIGNED, _("Code successfully assigned to user.")),
+        (OFFER_REDEEMED, _("Code has been redeemed by user.")),
+        (OFFER_ASSIGNMENT_EMAIL_BOUNCED, _("Email to user bounced.")),
+        (OFFER_ASSIGNMENT_REVOKED, _("Code has been revoked for this user.")),
+    )
+
+    offer = models.ForeignKey('offer.ConditionalOffer')
+    code = models.CharField(max_length=128)
+    user_email = models.EmailField()
+    status = models.CharField(
+        max_length=255,
+        choices=STATUS_CHOICES,
+        default=OFFER_ASSIGNMENT_EMAIL_PENDING,
+    )
+    voucher_application = models.ForeignKey(
+        'voucher.VoucherApplication',
+        null=True,
+        blank=True
+    )
+
+
+class OfferAssignmentEmailAttempt(models.Model):
+    """
+    This model is required to map the message identifier received from Sailthru to the OfferAssignment identifier.
+    The primary application of this model is in the asynchronous email status update from ecommerce-worker and Sailthru
+    """
+    offer_assignment = models.ForeignKey('offer.OfferAssignment', on_delete=models.CASCADE)
+    send_id = models.CharField(max_length=255, unique=True)
 
 
 from oscar.apps.offer.models import *  # noqa isort:skip pylint: disable=wildcard-import,unused-wildcard-import,wrong-import-position,wrong-import-order,ungrouped-imports

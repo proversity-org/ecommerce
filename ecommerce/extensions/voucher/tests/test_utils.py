@@ -60,8 +60,8 @@ class UtilTests(CouponMixin, DiscoveryMockMixin, DiscoveryTestMixin, LmsApiMockM
         self.user = self.create_user(full_name="Tešt Ušer", is_staff=True)
         self.client.login(username=self.user.username, password=self.password)
 
-        self.course = CourseFactory(id='course-v1:test-org+course+run')
-        self.verified_seat = self.course.create_or_update_seat('verified', False, 100, self.partner)
+        self.course = CourseFactory(id='course-v1:test-org+course+run', partner=self.partner)
+        self.verified_seat = self.course.create_or_update_seat('verified', False, 100)
 
         self.catalog = Catalog.objects.create(partner=self.partner)
 
@@ -86,6 +86,7 @@ class UtilTests(CouponMixin, DiscoveryMockMixin, DiscoveryTestMixin, LmsApiMockM
             'coupon': self.coupon,
             'end_datetime': datetime.datetime.now() + datetime.timedelta(days=1),
             'enterprise_customer': None,
+            'enterprise_customer_catalog': None,
             'name': "Test voucher",
             'quantity': 10,
             'start_datetime': datetime.datetime.now() - datetime.timedelta(days=1),
@@ -184,7 +185,8 @@ class UtilTests(CouponMixin, DiscoveryMockMixin, DiscoveryTestMixin, LmsApiMockM
         email_domains = 'edx.org,example.com'
         self.data.update({
             'email_domains': email_domains,
-            'name': 'Tešt voučher'
+            'name': 'Tešt voučher',
+            'site': self.site
         })
         vouchers = create_vouchers(**self.data)
 
@@ -200,6 +202,7 @@ class UtilTests(CouponMixin, DiscoveryMockMixin, DiscoveryTestMixin, LmsApiMockM
         self.assertEqual(voucher_offer.benefit.range.catalog, self.catalog)
         self.assertEqual(voucher_offer.email_domains, email_domains)
         self.assertEqual(voucher_offer.priority, OFFER_PRIORITY_VOUCHER)
+        self.assertEqual(voucher_offer.partner, self.partner)
         self.assertEqual(len(coupon_voucher.vouchers.all()), 11)
         self.assertEqual(voucher.end_datetime, self.data['end_datetime'])
         self.assertEqual(voucher.start_datetime, self.data['start_datetime'])
@@ -604,10 +607,10 @@ class UtilTests(CouponMixin, DiscoveryMockMixin, DiscoveryTestMixin, LmsApiMockM
         course2 = CourseFactory()
         order = OrderFactory(number='TESTORDER')
         order.lines.add(
-            OrderLineFactory(product=course1.create_or_update_seat('verified', False, 101, self.partner))
+            OrderLineFactory(product=course1.create_or_update_seat('verified', False, 101))
         )
         order.lines.add(
-            OrderLineFactory(product=course2.create_or_update_seat('verified', False, 110, self.partner))
+            OrderLineFactory(product=course2.create_or_update_seat('verified', False, 110))
         )
         query_coupon = self.create_catalog_coupon(catalog_query='*:*')
         voucher = query_coupon.attr.coupon_vouchers.vouchers.first()
@@ -634,7 +637,7 @@ class UtilTests(CouponMixin, DiscoveryMockMixin, DiscoveryTestMixin, LmsApiMockM
         new_email_domains = 'example.org'
         new_offer = update_voucher_offer(
             voucher_offer, 50.00, Benefit.PERCENTAGE,
-            self.coupon, email_domains=new_email_domains
+            email_domains=new_email_domains
         )
         self.assertEqual(new_offer.benefit.type, Benefit.PERCENTAGE)
         self.assertEqual(new_offer.benefit.value, 50.00)

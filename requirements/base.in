@@ -1,0 +1,50 @@
+#############################
+#
+#  edX Fork of Segment's python-analytics 1.2.8 using gevent for queueing
+#
+#############################
+-e git+https://github.com/edx/analytics-python.git@1.2.11#egg=analytics-python==1.2.11
+
+coreapi
+django==1.11.26
+django-compressor==2.2
+django-cors-headers                 #  Used to allow to configure CORS headers for cross-domain requests
+django-crispy-forms
+django_extensions==1.9.9
+django-filter==1.0.4
+django-libsass==0.5
+django-oscar<1.6                    # 1.6 has backwards incompatible changes
+django-rest-swagger
+django-solo
+django-threadlocals
+django-waffle<0.15.0                # Unpinning this causes multiple test failures
+djangorestframework==3.6.4
+djangorestframework-csv
+djangorestframework-jwt
+drf-extensions==0.3.1
+edx-auth-backends==1.2.1            # Requires code changes when upgraded to 1.2.2
+edx-django-release-util
+edx-django-utils
+edx-drf-extensions
+edx-django-sites-extensions
+edx-ecommerce-worker
+edx-opaque-keys
+edx-rest-api-client
+gevent==1.0.2
+jsonfield==1.0.3
+libsass==0.9.2
+markdown==2.6.9
+ndg-httpsclient
+path.py==7.2
+paypalrestsdk
+premailer==2.9.2
+pycountry==17.1.8
+pygments
+python-dateutil
+pytz==2016.10
+requests
+sailthru-client==2.2.3
+six
+stripe==1.70.0
+unicodecsv
+zeep==2.1.1

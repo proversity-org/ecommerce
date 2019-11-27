@@ -1,7 +1,10 @@
 """Devstack settings"""
+from corsheaders.defaults import default_headers as corsheaders_default_headers
+
+from ecommerce.settings.production import *
+
 # noinspection PyUnresolvedReferences
 from ecommerce.settings._debug_toolbar import *  # isort:skip
-from ecommerce.settings.production import *
 
 DEBUG = True
 INTERNAL_IPS = ['127.0.0.1']
@@ -13,17 +16,36 @@ LOGGING['handlers']['local'] = {
 }
 
 SOCIAL_AUTH_REDIRECT_IS_HTTPS = False
+SESSION_COOKIE_SECURE = False
 
 # Allow live changes to JS and CSS
 COMPRESS_OFFLINE = False
 COMPRESS_ENABLED = False
+
+JWT_AUTH.update({
+    # Must match public signing key used in LMS.
+    'JWT_PUBLIC_SIGNING_JWK_SET': (
+        '{"keys": [{"kid": "devstack_key", "e": "AQAB", "kty": "RSA", "n": "smKFSYowG6nNUAdeqH1jQQnH1PmIHphzBmwJ5vRf1vu'
+        '48BUI5VcVtUWIPqzRK_LDSlZYh9D0YFL0ZTxIrlb6Tn3Xz7pYvpIAeYuQv3_H5p8tbz7Fb8r63c1828wXPITVTv8f7oxx5W3lFFgpFAyYMmROC'
+        '4Ee9qG5T38LFe8_oAuFCEntimWxN9F3P-FJQy43TL7wG54WodgiM0EgzkeLr5K6cDnyckWjTuZbWI-4ffcTgTZsL_Kq1owa_J2ngEfxMCObnzG'
+        'y5ZLcTUomo4rZLjghVpq6KZxfS6I1Vz79ZsMVUWEdXOYePCKKsrQG20ogQEkmTf9FT_SouC6jPcHLXw"}]}'
+    ),
+})
+
+CORS_ORIGIN_WHITELIST = (
+    'localhost:1991'
+)
+CORS_ALLOW_HEADERS = corsheaders_default_headers + (
+    'use-jwt-cookie',
+)
+CORS_ALLOW_CREDENTIALS = True
 
 # PAYMENT PROCESSING
 PAYMENT_PROCESSOR_CONFIG = {
     'edx': {
         'cybersource': {
             'merchant_id': 'edx_org',
-            'transaction_key': '/yIJJejEGoNNcecTyxC9ZD0wR2ZjkkKuOaZnq2BGMGIGQIOKA1rBR009OuvKbPW4J1KLb15BMlaoiUXoj/8/Fp6dy33/aHAU0+yGKcEMxyYXQOBPKjuoChIlMRVkrtWZqP9shGxw1jwHNovmGrvd2ULRIn21Rsq6YnHie7lLLRhXyY2MjnFXfv75eH2rFwfi4hBPbVPvx/r8PwgFIh5otAzsgyIlBjaKJkzbNXd5qCOdNFSBcPcJps3YgVH0ASleI/SZp+Ckuyotd+EhzK0tOehPJAm3L03lkPNeFX9lcemuRkeV53V3nvobn3GaX0td4FAEe8CZBn+IpFC2PoK0tw==',
+            'transaction_key': '2iJRV1OoAiMxSsFRQfkmdeqYKzwV76R5AY7vs/zKCQf2Dy0gYsno6sEizavo9rz29kcq/s2F+nGP0DrNNwDXyAxI3FW77HY+0jAssnXwd8cW1Pt5aEBcQvnOQ4i9nbN2mr1XJ+MthRbNodz1FgLFuTiZenpjFq1DFmQwFi2u7V1ItQrmG19kvnpk1++mZ8Dx7s4GdN8jxdvesNGoKo7E05X6LZTHdUCP3rfq/1Nn4RDoPvxtv9UMe77yxtUF8LVJ8clAl4VyW+6uhmgfIWninfQiESR0HQ++cNJS1EXHjwNyuDEdEALKxAwgUu4DQpFbTD1bcRRm4VrnDr6MsA8NaA==',
             'soap_api_url': 'https://ics2wstest.ic3.com/commerce/1.x/transactionProcessor/CyberSourceTransaction_1.115.wsdl',
             'cancel_checkout_path': PAYMENT_PROCESSOR_CANCEL_PATH,
             'send_level_2_3_details': True,
@@ -51,6 +73,12 @@ PAYMENT_PROCESSOR_CONFIG = {
 
 # Language cookie
 LANGUAGE_COOKIE_NAME = 'openedx-language-preference'
+
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+#SAILTHRU settings
+SAILTHRU_KEY = 'abc123'
+SAILTHRU_SECRET = 'top_secret'
 
 #####################################################################
 # Lastly, see if the developer has any local overrides.

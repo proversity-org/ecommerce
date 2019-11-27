@@ -6,7 +6,7 @@ import jwt
 import mock
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.core.urlresolvers import reverse
+from django.urls import reverse
 from oscar.core.loading import get_class, get_model
 
 from ecommerce.core.constants import ISO_8601_FORMAT, SEAT_PRODUCT_CLASS_NAME
@@ -34,7 +34,7 @@ class CourseViewSetTests(ProductSerializerMixin, DiscoveryTestMixin, TestCase):
         self.course = self.create_course()
 
     def create_course(self):
-        return CourseFactory(id='edX/DemoX/Demo_Course', name='Test Course', site=self.site)
+        return CourseFactory(id='edX/DemoX/Demo_Course', name='Test Course', partner=self.partner)
 
     def serialize_course(self, course, include_products=False):
         """ Serializes a course to a Python dict. """
@@ -79,7 +79,7 @@ class CourseViewSetTests(ProductSerializerMixin, DiscoveryTestMixin, TestCase):
             'administrator': True,
             'username': username,
             'email': email,
-            'iss': settings.JWT_AUTH['JWT_ISSUERS'][0]
+            'iss': settings.JWT_AUTH['JWT_ISSUERS'][0]['ISSUER']
         }
         auth_header = "JWT {token}".format(token=jwt.encode(payload, settings.JWT_AUTH['JWT_SECRET_KEY']))
         self.assertFalse(User.objects.filter(username=username).exists())

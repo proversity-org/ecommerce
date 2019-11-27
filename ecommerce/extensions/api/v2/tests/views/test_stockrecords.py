@@ -1,7 +1,7 @@
 import json
 
 from django.contrib.auth.models import Permission
-from django.core.urlresolvers import reverse
+from django.urls import reverse
 from oscar.core.loading import get_model
 
 from ecommerce.courses.tests.factories import CourseFactory
@@ -23,8 +23,8 @@ class StockRecordViewSetTests(ProductSerializerMixin, DiscoveryTestMixin, Thrott
         super(StockRecordViewSetTests, self).setUp()
         self.user = self.create_user()
         self.client.login(username=self.user.username, password=self.password)
-        self.course = CourseFactory(id='edX/DemoX/Demo_Course', name='Demo Course', site=self.site)
-        self.product = self.course.create_or_update_seat('honor', False, 0, self.partner)
+        self.course = CourseFactory(id='edX/DemoX/Demo_Course', name='Demo Course', partner=self.partner)
+        self.product = self.course.create_or_update_seat('honor', False, 0)
         self.stockrecord = self.product.stockrecords.first()
         self.change_permission = Permission.objects.get(codename='change_stockrecord')
 

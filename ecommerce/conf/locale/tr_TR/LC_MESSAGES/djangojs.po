@@ -1,10 +1,11 @@
-# SOME DESCRIPTIVE TITLE.
-# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
-# This file is distributed under the same license as the PACKAGE package.
+# #-#-#-#-#  django.po (ecommerce)  #-#-#-#-#
+# edX translation file
+# Copyright (C) 2018 edX
+# This file is distributed under the GNU AFFERO GENERAL PUBLIC LICENSE.
 # 
 # Translators:
 # adem ÖZGÜR <admozgur@gmail.com>, 2015
-# Ali Işıngör <ali@artistanbul.io>, 2017
+# Ali Işıngör <ali@artistanbul.io>, 2017-2018
 # ali selek <aliselek01@gmail.com>, 2015
 # Bilal Oğuz marifet <bilalmarifet@gmail.com>, 2016
 # Emrah Emirtekin <eemirtekin@gmail.com>, 2015
@@ -15,19 +16,19 @@ msgid ""
 msgstr ""
 "Project-Id-Version: edx-platform\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2017-12-15 09:43-0500\n"
-"PO-Revision-Date: 2017-12-27 22:41+0000\n"
+"POT-Creation-Date: 2018-04-05 11:00+0000\n"
+"PO-Revision-Date: 2018-05-29 16:24+0000\n"
 "Last-Translator: Ali Işıngör <ali@artistanbul.io>\n"
 "Language-Team: Turkish (Turkey) (http://www.transifex.com/open-edx/edx-platform/language/tr_TR/)\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Language: tr_TR\n"
-"Plural-Forms: nplurals=1; plural=0;\n"
+"Plural-Forms: nplurals=2; plural=(n > 1);\n"
 
 #: ecommerce/static/js/models/coupon_model.js:33
 msgid "This field is required."
-msgstr "Bu alan zorunlu."
+msgstr "Bu alan gerekli."
 
 #: ecommerce/static/js/models/coupon_model.js:34
 msgid "This value must be a number."
@@ -52,7 +53,7 @@ msgstr "Geçerli bir kurs kimliği gereklidir"
 #: ecommerce/static/js/models/coupon_model.js:106
 #, javascript-format
 msgid "Email domain {%s} is invalid."
-msgstr ""
+msgstr "{%s} e-posta alan adı geçersiz."
 
 #: ecommerce/static/js/models/coupon_model.js:124
 msgid "Must occur after start date"
@@ -60,11 +61,11 @@ msgstr "Başlangıç tarihinden sonra gerçekleşmeli"
 
 #: ecommerce/static/js/models/coupon_model.js:154
 msgid "Max uses for multi-use coupons must be higher than 2."
-msgstr ""
+msgstr "Çok kullanımlı kuponların maksimum kullanım sayısı 2'den fazla olmalı."
 
 #: ecommerce/static/js/models/coupon_model.js:166
 msgid "A valid Program UUID is required."
-msgstr ""
+msgstr "Geçerli bir Program UUID'si gerekiyor."
 
 #: ecommerce/static/js/models/coupon_model.js:190
 msgid "Must occur before end date"
@@ -136,7 +137,7 @@ msgstr "Profesyonel"
 
 #: ecommerce/static/js/models/course_seats/course_seat.js:91
 msgid "Honor"
-msgstr "Etik"
+msgstr "Onur"
 
 #: ecommerce/static/js/models/course_seats/course_seat.js:93
 msgid "Audit"
@@ -152,7 +153,7 @@ msgstr "Profesyonel Sertifika"
 
 #: ecommerce/static/js/models/course_seats/course_seat.js:108
 msgid "Honor Certificate"
-msgstr "Etik Sertifikası"
+msgstr "Yüksek Onur Belgesi"
 
 #: ecommerce/static/js/models/course_seats/course_seat.js:111
 msgid "No Certificate"
@@ -164,51 +165,51 @@ msgstr "Tüm kredi yerlerinin kredi sağlayıcısı olmalıdır."
 
 #: ecommerce/static/js/models/course_seats/credit_seat.js:30
 msgid "Please select a valid credit provider."
-msgstr ""
+msgstr "Lütfen geçerli bir kredi sağlayıcısı seçiniz."
 
 #: ecommerce/static/js/models/course_seats/credit_seat.js:39
 msgid "All credit seats must designate a number of credit hours."
 msgstr "Tüm kredi yerleri kredi saatlerinin sayısını belirlemelidir."
 
-#: ecommerce/static/js/pages/basket_page.js:26
+#: ecommerce/static/js/pages/basket_page.js:27
 msgid "Problem occurred during checkout. Please contact support."
-msgstr ""
+msgstr "Ödeme sırasında bir hata gerçekleşti. Lütfen destek ekibiyle iletişime geçin."
 
-#: ecommerce/static/js/pages/basket_page.js:99
+#: ecommerce/static/js/pages/basket_page.js:101
 msgid "This field is required"
-msgstr "Bu alan zorunlu"
+msgstr "Bu alan gerekli"
 
-#: ecommerce/static/js/pages/basket_page.js:134
+#: ecommerce/static/js/pages/basket_page.js:136
 msgid "Invalid card number"
 msgstr "Geçersiz kart numarası"
 
-#: ecommerce/static/js/pages/basket_page.js:136
+#: ecommerce/static/js/pages/basket_page.js:138
 msgid "Unsupported card type"
 msgstr "Desteklenmeyen kart türü"
 
-#: ecommerce/static/js/pages/basket_page.js:138
+#: ecommerce/static/js/pages/basket_page.js:140
 msgid "Invalid security number"
-msgstr ""
+msgstr "Geçersiz güvenlik numarası"
 
-#: ecommerce/static/js/pages/basket_page.js:143
+#: ecommerce/static/js/pages/basket_page.js:145
 msgid "Invalid month"
 msgstr "Geçersiz ay"
 
-#: ecommerce/static/js/pages/basket_page.js:145
+#: ecommerce/static/js/pages/basket_page.js:147
 msgid "Invalid year"
 msgstr "Geçersiz yıl"
 
-#: ecommerce/static/js/pages/basket_page.js:147
+#: ecommerce/static/js/pages/basket_page.js:149
 msgid "Card expired"
 msgstr "Kartın süresi dolmuş"
 
-#: ecommerce/static/js/pages/basket_page.js:465
+#: ecommerce/static/js/pages/basket_page.js:485
 msgid "<Choose state/province>"
-msgstr ""
+msgstr "<Choose state/province>"
 
-#: ecommerce/static/js/pages/basket_page.js:466
+#: ecommerce/static/js/pages/basket_page.js:486
 msgid "State/Province (required)"
-msgstr ""
+msgstr "Şehir (gerekli)"
 
 #: ecommerce/static/js/pages/coupon_create_page.js:12
 msgid "Create New Coupon"
@@ -250,7 +251,7 @@ msgstr ""
 msgid ""
 "Caution! Using the back button on this page may cause you to be charged "
 "again."
-msgstr ""
+msgstr "Uyarı! Bu sayfadayken geri tuşuna basmanız, ücretin bir kez daha tahsil edilmesine neden olabilir."
 
 #. Translators: Do not translate "Apple Pay".
 #: ecommerce/static/js/payment_processors/cybersource.js:218
@@ -262,17 +263,17 @@ msgstr "Apple Pay şu an için mevcut değil. Lütfen diğer bir ödeme yöntemi
 msgid ""
 "An error occurred while processing your payment. You have NOT been charged. "
 "Please try again, or select another payment method."
-msgstr ""
+msgstr "Ödemenizle ilgili bir hata ortaya çıktı. Ücret tahsil edilmedi. Lütfen tekrar deneyin veya farklı bir ödeme yöntemini seçin."
 
 #: ecommerce/static/js/payment_processors/stripe.js:71
 msgid ""
 "An error occurred while attempting to process your payment. You have not "
 "been charged. Please check your payment details, and try again."
-msgstr ""
+msgstr "Ödemenizle ilgili bir hata ortaya çıktı. Ücret tahsil edilmedi. Lütfen bilgilerinizi bir kez daha kontrol edin ve yeniden deneyin."
 
 #: ecommerce/static/js/payment_processors/stripe.js:110
 msgid "An error occurred while processing your payment. Please try again."
-msgstr ""
+msgstr "Ödemenizi işlerken bir hata gerçekleşti. Lütfen tekrar deneyin."
 
 #: ecommerce/static/js/utils/utils.js:184
 msgid "Trailing comma not allowed."
@@ -307,7 +308,7 @@ msgstr "Değişikleri Kaydet"
 
 #: ecommerce/static/js/views/coupon_form_view.js:783
 msgid "Create Coupon"
-msgstr "Kupon oluştur"
+msgstr "Kupon Oluştur"
 
 #: ecommerce/static/js/views/coupon_list_view.js:47
 #: ecommerce/static/js/views/course_list_view.js:37
@@ -338,7 +339,7 @@ msgstr ""
 #. Translators: _MENU_ is a placeholder. Do NOT translate it.
 #: ecommerce/static/js/views/coupon_list_view.js:68
 msgid "Display _MENU_ coupons"
-msgstr ""
+msgstr "_MENU_ kuponlarını göster"
 
 #: ecommerce/static/js/views/coupon_list_view.js:74
 msgid "Name"
@@ -350,7 +351,7 @@ msgstr "Oluşturma"
 
 #: ecommerce/static/js/views/coupon_list_view.js:85
 msgid "Custom Code"
-msgstr ""
+msgstr "Özel Kod"
 
 #: ecommerce/static/js/views/coupon_list_view.js:89
 msgid "Client"
@@ -385,13 +386,13 @@ msgstr "Profesyonel Eğitim"
 msgid ""
 "Paid certificate track with initial verification and Professional Education "
 "Certificate"
-msgstr ""
+msgstr "Başlangıç onayı ve Profesyonel Eğitim Sertifikası ile ücretli sertifika yolu"
 
 #: ecommerce/static/js/views/course_form_view.js:72
 msgid ""
 "Paid certificate track with initial verification and Verified Certificate, "
 "and option to purchase credit"
-msgstr ""
+msgstr "Başlangıç onayı ve Onaylı Sertifika ile ücretli sertifika yolu, ve kredi satın almak için seçenek"
 
 #. Translators: _START_, _END_, and _TOTAL_ are placeholders. Do NOT translate
 #. them.
@@ -427,7 +428,7 @@ msgstr ""
 
 #: ecommerce/static/js/views/form_view.js:69
 msgid "A course with the specified ID already exists."
-msgstr ""
+msgstr "Belirtilen No'lu ders zaten mevcut."
 
 #: ecommerce/static/js/views/form_view.js:79
 #: ecommerce/static/js/views/form_view.js:172
@@ -440,7 +441,7 @@ msgstr "Kaydediliyor..."
 
 #: ecommerce/static/js/views/form_view.js:134
 msgid "Please complete all required fields."
-msgstr ""
+msgstr "Lütfen tüm gerekli alanları tamamlayın."
 
 #: ecommerce/static/js/views/form_view.js:159
 msgid "An error occurred while saving the data."
@@ -448,19 +449,19 @@ msgstr "Veriyi kaydederken bir hata oluştu."
 
 #: ecommerce/static/js/views/offer_view.js:198
 msgid "Ellipsis"
-msgstr ""
+msgstr "Üç Nokta"
 
 #: ecommerce/static/js/views/offer_view.js:205
 msgid "Load the records for page "
-msgstr ""
+msgstr "Sayfa için kayıtları yükle"
 
 #: ecommerce/static/js/views/offer_view.js:212
 msgid "Load the records for the next page"
-msgstr ""
+msgstr "Sonraki sayfa için kayıtları yükle"
 
 #: ecommerce/static/js/views/offer_view.js:220
 msgid "Load the records for the previous page"
-msgstr ""
+msgstr "Önceki sayfa için kayıtları yükle"
 
 #: ecommerce/static/js/views/provider_selection_view.js:33
 msgid "Select"
@@ -472,15 +473,15 @@ msgstr "Seçili"
 
 #: ecommerce/static/vendor-extensions/oscar/js/order_actions.js:21
 msgid "Order %(order_number)s has been fulfilled."
-msgstr ""
+msgstr "%(order_number)s numaralı sipariş tamamlandı."
 
 #: ecommerce/static/vendor-extensions/oscar/js/order_actions.js:27
 msgid "Failed to fulfill order %(order_number)s: %(error)s"
-msgstr ""
+msgstr "%(order_number)s numaralı sipariş tamamlanamadı:  %(error)s"
 
 #: ecommerce/static/vendor-extensions/oscar/js/refund_list.js:24
 msgid "Refund #%(refund_id)s has been processed."
-msgstr ""
+msgstr "#%(refund_id)s numaralı para iadesi işlendi."
 
 #: ecommerce/static/vendor-extensions/oscar/js/refund_list.js:33
 msgid "Error"
@@ -490,4 +491,4 @@ msgstr "Hata"
 msgid ""
 "Failed to process refund #%(refund_id)s: %(error)s. Please try again, or "
 "contact the E-Commerce Development Team."
-msgstr ""
+msgstr "İade işlemi başarısız oldu #%(refund_id)s: %(error)s. Lütfen tekrar deneyin ya da E-Ticaret Geliştirme Ekibi ile iletişime geçin."

@@ -4,7 +4,7 @@ import uuid
 import httpretty
 from oscar.core.loading import get_model
 
-from ecommerce.enterprise.constants import BENEFIT_MAP
+from ecommerce.enterprise.benefits import BENEFIT_MAP
 from ecommerce.enterprise.forms import EnterpriseOfferForm
 from ecommerce.enterprise.tests.mixins import EnterpriseServiceMockMixin
 from ecommerce.extensions.offer.models import OFFER_PRIORITY_ENTERPRISE
@@ -36,7 +36,7 @@ class EnterpriseOfferFormTests(EnterpriseServiceMockMixin, TestCase):
         self.assertEqual(offer.offer_type, ConditionalOffer.SITE)
         self.assertEqual(offer.status, ConditionalOffer.OPEN)
         self.assertEqual(offer.max_basket_applications, 1)
-        self.assertEqual(offer.site, self.site)
+        self.assertEqual(offer.partner, self.partner)
         self.assertEqual(offer.priority, OFFER_PRIORITY_ENTERPRISE)
         self.assertEqual(offer.condition.enterprise_customer_uuid, enterprise_customer_uuid)
         self.assertEqual(offer.condition.enterprise_customer_name, enterprise_customer_name)
@@ -118,7 +118,11 @@ class EnterpriseOfferFormTests(EnterpriseServiceMockMixin, TestCase):
             data['enterprise_customer_catalog_uuid'],
             data['benefit_value'],
             data['benefit_type'],
-            'Discount provided by {}.'.format(data['enterprise_customer_name']),
+            'Discount of type {} provided by {} for {}.'.format(
+                ConditionalOffer.SITE,
+                data['enterprise_customer_name'][:48],
+                data['enterprise_customer_catalog_uuid']
+            ),
         )
 
     @httpretty.activate
@@ -140,7 +144,9 @@ class EnterpriseOfferFormTests(EnterpriseServiceMockMixin, TestCase):
             data['enterprise_customer_catalog_uuid'],
             data['benefit_value'],
             data['benefit_type'],
-            'Discount provided by Spánish Enterprise.'
+            'Discount of type Site provided by Spánish Enterprise for {}.'.format(
+                data['enterprise_customer_catalog_uuid']
+            ),
         )
 
     @httpretty.activate
@@ -164,7 +170,11 @@ class EnterpriseOfferFormTests(EnterpriseServiceMockMixin, TestCase):
             data['enterprise_customer_catalog_uuid'],
             data['benefit_value'],
             data['benefit_type'],
-            'Discount provided by {}.'.format(data['enterprise_customer_name']),
+            'Discount of type {} provided by {} for {}.'.format(
+                ConditionalOffer.SITE,
+                data['enterprise_customer_name'][:48],
+                data['enterprise_customer_catalog_uuid']
+            ),
         )
 
     @httpretty.activate
@@ -194,7 +204,11 @@ class EnterpriseOfferFormTests(EnterpriseServiceMockMixin, TestCase):
             data['enterprise_customer_catalog_uuid'],
             data['benefit_value'],
             data['benefit_type'],
-            'Discount provided by {}.'.format(data['enterprise_customer_name']),
+            'Discount of type {} provided by {} for {}.'.format(
+                ConditionalOffer.SITE,
+                data['enterprise_customer_name'][:48],
+                data['enterprise_customer_catalog_uuid']
+            ),
         )
 
     def test_create_when_conditional_offer_with_uuid_exists(self):

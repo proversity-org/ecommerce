@@ -5,14 +5,13 @@ from django.forms.utils import ErrorList
 from django.utils.translation import ugettext_lazy as _
 from oscar.core.loading import get_model
 
+from ecommerce.enterprise.benefits import BENEFIT_MAP, BENEFIT_TYPE_CHOICES
 from ecommerce.enterprise.conditions import EnterpriseCustomerCondition
-from ecommerce.enterprise.constants import BENEFIT_MAP, BENEFIT_TYPE_CHOICES
 from ecommerce.enterprise.utils import get_enterprise_customer
 from ecommerce.extensions.offer.models import OFFER_PRIORITY_ENTERPRISE
 from ecommerce.programs.custom import class_path, create_condition
 
 Benefit = get_model('offer', 'Benefit')
-Condition = get_model('offer', 'Condition')
 ConditionalOffer = get_model('offer', 'ConditionalOffer')
 Range = get_model('offer', 'Range')
 
@@ -95,13 +94,22 @@ class EnterpriseOfferForm(forms.ModelForm):
         enterprise_customer = get_enterprise_customer(site, enterprise_customer_uuid)
         enterprise_customer_name = enterprise_customer['name']
 
-        self.instance.name = _(u'Discount provided by {enterprise_customer_name}.'.format(
-            enterprise_customer_name=enterprise_customer_name
+        # Note: the actual name is not displayed like this in the template, so it's safe to use the UUID here.
+        # And in fact we have to, because otherwise we face integrity errors since Oscar forces this name to be unique.
+        # Truncate 'enterprise_customer_name' to 48 characters so that our complete name with
+        # format 'Discount of type {site} provided by {enterprise_name} for {catalog_uuid}. does
+        # not exceed the limit of 128 characters for Oscar's 'AbstractConditionalOffer' name.
+        offer_name = _(u'Discount of type {} provided by {} for {}.'.format(
+            ConditionalOffer.SITE,
+            enterprise_customer_name[:48],  # pylint: disable=unsubscriptable-object,
+            enterprise_customer_catalog_uuid
         ))
+
+        self.instance.name = offer_name
         self.instance.status = ConditionalOffer.OPEN
         self.instance.offer_type = ConditionalOffer.SITE
         self.instance.max_basket_applications = 1
-        self.instance.site = site
+        self.instance.partner = site.siteconfiguration.partner
         self.instance.priority = OFFER_PRIORITY_ENTERPRISE
 
         if commit:

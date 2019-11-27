@@ -2,8 +2,9 @@ import datetime
 import json
 
 import httpretty
-from django.core.cache import cache
+import mock
 from django.test import RequestFactory
+from edx_django_utils.cache import TieredCache
 from oscar.core.utils import slugify
 from oscar.test import factories
 
@@ -13,14 +14,14 @@ from ecommerce.extensions.api.v2.views.coupons import CouponViewSet
 from ecommerce.extensions.basket.utils import prepare_basket
 from ecommerce.extensions.catalogue.utils import create_coupon_product
 from ecommerce.tests.factories import PartnerFactory
-from ecommerce.tests.mixins import Applicator, Benefit, Catalog, ProductClass, Voucher
+from ecommerce.tests.mixins import Applicator, Benefit, Catalog, ProductClass, SiteMixin, Voucher
 
 
 class DiscoveryMockMixin(object):
     """ Mocks for the Discovery service response. """
     def setUp(self):
         super(DiscoveryMockMixin, self).setUp()
-        cache.clear()
+        TieredCache.dangerous_clear_all_tiers()
 
     @staticmethod
     def build_discovery_catalogs_url(discovery_api_url, catalog_id=''):
@@ -46,7 +47,7 @@ class DiscoveryMockMixin(object):
         course_run_url = '{}course_runs/{}/?partner={}'.format(
             discovery_api_url,
             course_run.id,
-            self.site.siteconfiguration.partner.short_code
+            self.partner.short_code
         )
 
         httpretty.register_uri(
@@ -121,10 +122,12 @@ class DiscoveryMockMixin(object):
                     'image': {
                         'src': 'path/to/the/course/image'
                     },
+                    'enrollment_start': '2016-05-01T00:00:00Z',
                     'enrollment_end': None
                 }] if course_run else [{
                     'key': 'test',
                     'title': 'Test course',
+                    'enrollment_start': '2016-05-01T00:00:00Z',
                     'enrollment_end': None
                 }],
             }
@@ -159,6 +162,49 @@ class DiscoveryMockMixin(object):
         httpretty.register_uri(
             httpretty.GET, course_run_url_with_key,
             body=json.dumps(course_run_info['results'][0]),
+            content_type='application/json'
+        )
+
+    def mock_enterprise_catalog_course_endpoint(
+            self, enterprise_api_url, enterprise_catalog_id, course_run=None, course_info=None
+    ):
+        """
+        Helper function to register a enterprise API endpoint for getting course information.
+        """
+        if not course_info:
+            course_info = {
+                'count': 1,
+                'next': None,
+                'previous': None,
+                'results': [{
+                    'key': course_run.id,
+                    'title': course_run.name,
+                    'card_image_url': 'path/to/the/course/image',
+                    'content_type': 'course',
+                    'course_runs': [{
+                        'key': course_run.id,
+                        'start': '2016-05-01T00:00:00Z',
+                        'enrollment_start': '2016-05-01T00:00:00Z',
+                        'enrollment_end': None,
+                    }, {
+                        'key': 'test',
+                        'title': 'Test course',
+                    }],
+                }] if course_run else [{
+                    'key': 'test',
+                    'title': 'Test course',
+                    'course_runs': [],
+                }],
+            }
+        course_info_json = json.dumps(course_info)
+        enterprise_catalog_url = '{}enterprise_catalogs/{}/'.format(
+            enterprise_api_url,
+            enterprise_catalog_id
+        )
+        httpretty.register_uri(
+            httpretty.GET,
+            enterprise_catalog_url,
+            body=course_info_json,
             content_type='application/json'
         )
 
@@ -203,6 +249,24 @@ class DiscoveryMockMixin(object):
             ]
         )
 
+    def mock_catalog_query_contains_endpoint(self, course_run_ids, course_uuids, absent_ids, query, discovery_api_url):
+        query_contains_info = {str(identifier): True for identifier in course_run_ids + course_uuids}
+        for identifier in absent_ids:
+            query_contains_info[str(identifier)] = False
+        query_contains_info_json = json.dumps(query_contains_info)
+        url = '{base}catalog/query_contains/?course_run_ids={run_ids}&course_uuids={uuids}&query={query}'.format(
+            base=discovery_api_url,
+            run_ids=",".join(course_run_id for course_run_id in course_run_ids),
+            uuids=",".join(str(course_uuid) for course_uuid in course_uuids),
+            query=query
+        )
+        httpretty.register_uri(
+            httpretty.GET, url,
+            body=query_contains_info_json,
+            content_type='application/json'
+        )
+        return url
+
     def mock_catalog_contains_endpoint(
             self, discovery_api_url, catalog_id=1, course_run_ids=None
     ):
@@ -219,7 +283,6 @@ class DiscoveryMockMixin(object):
         catalog_contains_uri = '{}contains/?course_run_id={}'.format(
             self.build_discovery_catalogs_url(discovery_api_url, catalog_id), ','.join(course_run_ids)
         )
-
         httpretty.register_uri(
             method=httpretty.GET,
             uri=catalog_contains_uri,
@@ -326,7 +389,7 @@ class DiscoveryMockMixin(object):
         )
 
 
-class CouponMixin(object):
+class CouponMixin(SiteMixin):
     """ Mixin for preparing data for coupons and creating coupons. """
 
     REDEMPTION_URL = "/coupons/offer/?code={}"
@@ -358,12 +421,18 @@ class CouponMixin(object):
                 product_class=pc,
                 type='text'
             )
+            factories.ProductAttributeFactory(
+                product_class=pc,
+                name='Notification Email',
+                code='notify_email',
+                type='text'
+            )
 
         return pc
 
-    def create_coupon(self, benefit_type=Benefit.PERCENTAGE, benefit_value=100, catalog=None,
-                      catalog_query=None, client=None, code='', course_seat_types=None, email_domains=None,
-                      enterprise_customer=None, max_uses=None, note=None, partner=None, price=100, quantity=5,
+    def create_coupon(self, benefit_type=Benefit.PERCENTAGE, benefit_value=100, catalog=None, catalog_query=None,
+                      client=None, code='', course_seat_types=None, email_domains=None, enterprise_customer=None,
+                      enterprise_customer_catalog=None, max_uses=None, note=None, partner=None, price=100, quantity=5,
                       title='Test coupon', voucher_type=Voucher.SINGLE_USE, course_catalog=None, program_uuid=None):
         """Helper method for creating a coupon.
 
@@ -377,6 +446,7 @@ class CouponMixin(object):
             course_catalog (int): Course catalog id from Discovery Service
             course_seat_types(str): A string of comma-separated list of seat types
             enterprise_customer (str): Hex-encoded UUID for an Enterprise Customer object from the Enterprise app.
+            enterprise_customer_catalog (str): UUID for an Enterprise Customer Catalog from the Enterprise app.
             email_domains(str): A comma seperated list of email domains
             max_uses (int): Number of Voucher max uses
             note (str): Coupon note.
@@ -395,34 +465,40 @@ class CouponMixin(object):
             partner = PartnerFactory(name='Tester')
         if client is None:
             client, __ = BusinessClient.objects.get_or_create(name='Test Client')
-        if catalog is None and not ((catalog_query or course_catalog or program_uuid) and course_seat_types):
+        if (catalog is None and not enterprise_customer_catalog and not
+                ((catalog_query or course_catalog or program_uuid) and course_seat_types)):
             catalog = Catalog.objects.create(partner=partner)
         if code is not '':
             quantity = 1
 
-        coupon = create_coupon_product(
-            benefit_type=benefit_type,
-            benefit_value=benefit_value,
-            catalog=catalog,
-            catalog_query=catalog_query,
-            category=self.category,
-            code=code,
-            course_catalog=course_catalog,
-            course_seat_types=course_seat_types,
-            email_domains=email_domains,
-            end_datetime=datetime.datetime(2020, 1, 1),
-            enterprise_customer=enterprise_customer,
-            max_uses=max_uses,
-            note=note,
-            partner=partner,
-            price=price,
-            quantity=quantity,
-            start_datetime=datetime.datetime(2015, 1, 1),
-            title=title,
-            voucher_type=voucher_type,
-            program_uuid=program_uuid,
-            site=self.site
-        )
+        with mock.patch(
+            "ecommerce.extensions.voucher.utils.get_enterprise_customer",
+            mock.Mock(return_value={'name': 'Fake enterprise'})
+        ):
+            coupon = create_coupon_product(
+                benefit_type=benefit_type,
+                benefit_value=benefit_value,
+                catalog=catalog,
+                catalog_query=catalog_query,
+                category=self.category,
+                code=code,
+                course_catalog=course_catalog,
+                course_seat_types=course_seat_types,
+                email_domains=email_domains,
+                end_datetime=datetime.datetime(2020, 1, 1),
+                enterprise_customer=enterprise_customer,
+                enterprise_customer_catalog=enterprise_customer_catalog,
+                max_uses=max_uses,
+                note=note,
+                partner=partner,
+                price=price,
+                quantity=quantity,
+                start_datetime=datetime.datetime(2015, 1, 1),
+                title=title,
+                voucher_type=voucher_type,
+                program_uuid=program_uuid,
+                site=self.site
+            )
 
         request = RequestFactory()
         request.site = self.site

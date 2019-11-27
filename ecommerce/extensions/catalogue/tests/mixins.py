@@ -1,17 +1,17 @@
 from __future__ import unicode_literals
 
 import logging
+from uuid import uuid4
 
 from oscar.core.loading import get_model
 from oscar.core.utils import slugify
 from oscar.test import factories
 
 from ecommerce.core.constants import (
+    COURSE_ENTITLEMENT_PRODUCT_CLASS_NAME,
     ENROLLMENT_CODE_PRODUCT_CLASS_NAME,
-    ENROLLMENT_CODE_SWITCH,
     SEAT_PRODUCT_CLASS_NAME
 )
-from ecommerce.core.tests import toggle_switch
 from ecommerce.courses.tests.factories import CourseFactory
 from ecommerce.tests.factories import PartnerFactory
 
@@ -35,14 +35,16 @@ class DiscoveryTestMixin(object):
         super(DiscoveryTestMixin, self).setUp()
 
         # Force the creation of a seat ProductClass
+        self.entitlement_product_class  # pylint: disable=pointless-statement
         self.seat_product_class  # pylint: disable=pointless-statement
         self.enrollment_code_product_class  # pylint: disable=pointless-statement
 
-        category_name = 'Seats'
-        try:
-            self.category = Category.objects.get(name=category_name)
-        except Category.DoesNotExist:
-            self.category = factories.CategoryFactory(name=category_name)
+        for category_name in ['Course Entitlements', 'Seats']:
+            try:
+                Category.objects.get(name=category_name)
+            except Category.DoesNotExist:
+                factories.CategoryFactory(name=category_name)
+        self.category = Category.objects.get(name='Seats')
 
     def create_course_and_seat(
             self, course_id=None, seat_type='verified', id_verification=False, price=10, partner=None
@@ -64,12 +66,22 @@ class DiscoveryTestMixin(object):
         if not partner:
             partner = PartnerFactory()
         if not course_id:
-            course = CourseFactory()
+            course = CourseFactory(partner=partner)
         else:
-            course = CourseFactory(id=course_id)
+            course = CourseFactory(id=course_id, partner=partner)
 
-        seat = course.create_or_update_seat(seat_type, id_verification, price, partner)
+        seat = course.create_or_update_seat(seat_type, id_verification, price)
         return course, seat
+
+    def create_entitlement_product(self, course_uuid=None, certificate_type='verified'):
+        entitlement = factories.ProductFactory(
+            product_class=self.entitlement_product_class, stockrecords__partner=PartnerFactory(),
+            stockrecords__price_currency='USD'
+        )
+        entitlement.attr.UUID = course_uuid if course_uuid else uuid4()
+        entitlement.attr.certificate_type = certificate_type
+        entitlement.save()
+        return entitlement
 
     def _create_product_class(self, class_name, slug, attributes):
         """ Helper method for creating product classes.
@@ -91,6 +103,17 @@ class DiscoveryTestMixin(object):
                 factories.ProductAttributeFactory(code=code, name=code, product_class=pc, type=attr_type)
 
         return pc
+
+    @property
+    def entitlement_product_class(self):
+        attributes = (
+            ('certificate_type', 'text'),
+            ('UUID', 'text'),
+        )
+        product_class = self._create_product_class(
+            COURSE_ENTITLEMENT_PRODUCT_CLASS_NAME, slugify(COURSE_ENTITLEMENT_PRODUCT_CLASS_NAME), attributes
+        )
+        return product_class
 
     @property
     def seat_product_class(self):
@@ -134,14 +157,10 @@ class DiscoveryTestMixin(object):
         Returns:
             The newly created course, seat and enrollment code.
         """
-        course = CourseFactory()
-        toggle_switch(ENROLLMENT_CODE_SWITCH, True)
-        site_configuration = self.site.siteconfiguration
-        site_configuration.enable_enrollment_codes = True
-        site_configuration.save()
+        course = CourseFactory(partner=self.partner)
 
         seat = course.create_or_update_seat(
-            seat_type, id_verification, price, self.partner, expires=expires, create_enrollment_code=True
+            seat_type, id_verification, price, expires=expires, create_enrollment_code=True
         )
         enrollment_code = Product.objects.get(product_class__name=ENROLLMENT_CODE_PRODUCT_CLASS_NAME)
         return course, seat, enrollment_code

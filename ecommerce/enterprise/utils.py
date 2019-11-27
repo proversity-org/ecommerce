@@ -9,14 +9,15 @@ from urllib import urlencode
 
 import waffle
 from django.conf import settings
-from django.core.urlresolvers import reverse
+from django.urls import reverse
 from django.utils.translation import ugettext as _
+from edx_django_utils.cache import TieredCache
 from edx_rest_api_client.client import EdxRestApiClient
 from oscar.core.loading import get_model
 from requests.exceptions import ConnectionError, Timeout
 from slumber.exceptions import SlumberHttpBaseException
 
-from ecommerce.core.utils import traverse_pagination
+from ecommerce.core.utils import deprecated_traverse_pagination
 from ecommerce.enterprise.exceptions import EnterpriseDoesNotExist
 from ecommerce.extensions.offer.models import OFFER_PRIORITY_ENTERPRISE
 
@@ -58,21 +59,43 @@ def get_enterprise_customer(site, uuid):
     """
     Return a single enterprise customer
     """
+    resource = 'enterprise-customer'
+    cache_key = '{site_domain}_{partner_code}_{resource}_{enterprise_uuid}'.format(
+        site_domain=site.domain,
+        partner_code=site.siteconfiguration.partner.short_code,
+        resource=resource,
+        enterprise_uuid=uuid,
+    )
+    cache_key = hashlib.md5(cache_key).hexdigest()
+    cached_response = TieredCache.get_cached_response(cache_key)
+    if cached_response.is_found:
+        return cached_response.value
+
     client = get_enterprise_api_client(site)
-    path = ['enterprise-customer', str(uuid)]
+    path = [resource, str(uuid)]
     client = reduce(getattr, path, client)
 
     try:
         response = client.get()
     except (ConnectionError, SlumberHttpBaseException, Timeout):
         return None
-    return {
+
+    enterprise_customer_response = {
         'name': response['name'],
         'id': response['uuid'],
         'enable_data_sharing_consent': response['enable_data_sharing_consent'],
         'enforce_data_sharing_consent': response['enforce_data_sharing_consent'],
         'contact_email': response.get('contact_email', ''),
+        'slug': response.get('slug')
     }
+
+    TieredCache.set_all_tiers(
+        cache_key,
+        enterprise_customer_response,
+        settings.ENTERPRISE_CUSTOMER_RESULTS_CACHE_TIMEOUT
+    )
+
+    return enterprise_customer_response
 
 
 def get_enterprise_customers(site):
@@ -86,7 +109,7 @@ def get_enterprise_customers(site):
                 'name': each['name'],
                 'id': each['uuid'],
             }
-            for each in traverse_pagination(response, endpoint)
+            for each in deprecated_traverse_pagination(response, endpoint)
         ],
         key=lambda k: k['name'].lower()
     )
@@ -214,29 +237,40 @@ def enterprise_customer_user_needs_consent(site, enterprise_customer_uuid, cours
     )['consent_required']
 
 
+def get_enterprise_customer_uuid_from_voucher(voucher):
+    """
+    Given a Voucher, find the associated Enterprise Customer UUID, if it exists.
+    """
+    enterprise_customer_uuid = None
+    for offer in voucher.offers.all():
+        if offer.benefit.range and offer.benefit.range.enterprise_customer:
+            enterprise_customer_uuid = offer.benefit.range.enterprise_customer
+        elif offer.condition.enterprise_customer_uuid:
+            enterprise_customer_uuid = offer.condition.enterprise_customer_uuid
+
+    return enterprise_customer_uuid
+
+
 def get_enterprise_customer_from_voucher(site, voucher):
     """
     Given a Voucher, find the associated Enterprise Customer and retrieve data about
     that customer from the Enterprise service. If there is no Enterprise Customer
     associated with the Voucher, `None` is returned.
     """
-    try:
-        offer = voucher.offers.get(benefit__range__enterprise_customer__isnull=False)
-    except ConditionalOffer.DoesNotExist:
-        # There's no Enterprise Customer associated with this voucher.
-        return None
+    enterprise_customer_uuid = get_enterprise_customer_uuid_from_voucher(voucher)
 
-    # Get information about the enterprise customer from the Enterprise service.
-    enterprise_customer_uuid = offer.benefit.range.enterprise_customer
-    enterprise_customer = get_enterprise_customer(site, enterprise_customer_uuid)
-    if enterprise_customer is None:
-        raise EnterpriseDoesNotExist(
-            'Enterprise customer with UUID {uuid} does not exist in the Enterprise service.'.format(
-                uuid=enterprise_customer_uuid
+    if enterprise_customer_uuid:
+        enterprise_customer = get_enterprise_customer(site, enterprise_customer_uuid)
+        if enterprise_customer is None:
+            raise EnterpriseDoesNotExist(
+                'Enterprise customer with UUID {uuid} does not exist in the Enterprise service.'.format(
+                    uuid=enterprise_customer_uuid
+                )
             )
-        )
 
-    return enterprise_customer
+        return enterprise_customer
+
+    return None
 
 
 def get_enterprise_course_consent_url(
@@ -319,13 +353,7 @@ def get_enterprise_customer_uuid(coupon_code):
     except Voucher.DoesNotExist:
         return None
 
-    try:
-        offer = voucher.offers.get(benefit__range__enterprise_customer__isnull=False)
-    except ConditionalOffer.DoesNotExist:
-        # There's no Enterprise Customer associated with this voucher.
-        return None
-
-    return offer.benefit.range.enterprise_customer
+    return get_enterprise_customer_uuid_from_voucher(voucher)
 
 
 def set_enterprise_customer_cookie(site, response, enterprise_customer_uuid, max_age=None):
@@ -348,6 +376,7 @@ def set_enterprise_customer_cookie(site, response, enterprise_customer_uuid, max
             settings.ENTERPRISE_CUSTOMER_COOKIE_NAME, enterprise_customer_uuid,
             domain=site.siteconfiguration.base_cookie_domain,
             max_age=max_age,
+            secure=True,
         )
     else:
         log.warning(
@@ -372,3 +401,46 @@ def has_enterprise_offer(basket):
         if offer['offer'].priority == OFFER_PRIORITY_ENTERPRISE:
             return True
     return False
+
+
+def get_enterprise_catalog(site, enterprise_catalog, limit, page):
+    """
+    Get the EnterpriseCustomerCatalog for a given catalog uuid.
+
+    Args:
+        site (Site): The site which is handling the current request
+        enterprise_catalog (str): The uuid of the Enterprise Catalog
+        limit (int): The number of results to return per page.
+        page (int): The page number to fetch.
+
+    Returns:
+        dict: The result set containing the content objects associated with the Enterprise Catalog.
+        NoneType: Return None if no catalog with that uuid is found.
+    """
+    resource = 'enterprise_catalogs'
+    partner_code = site.siteconfiguration.partner.short_code
+    cache_key = '{site_domain}_{partner_code}_{resource}_{catalog}_{limit}_{page}'.format(
+        site_domain=site.domain,
+        partner_code=partner_code,
+        resource=resource,
+        catalog=enterprise_catalog,
+        limit=limit,
+        page=page
+    )
+    cache_key = hashlib.md5(cache_key).hexdigest()
+
+    cached_response = TieredCache.get_cached_response(cache_key)
+    if cached_response.is_found:
+        return cached_response.value
+
+    client = get_enterprise_api_client(site)
+    path = [resource, str(enterprise_catalog)]
+    client = reduce(getattr, path, client)
+
+    response = client.get(
+        limit=limit,
+        page=page,
+    )
+    TieredCache.set_all_tiers(cache_key, response, settings.CATALOG_RESULTS_CACHE_TIMEOUT)
+
+    return response

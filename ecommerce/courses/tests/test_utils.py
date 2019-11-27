@@ -2,12 +2,11 @@ import hashlib
 
 import ddt
 import httpretty
-from django.core.cache import cache
+from edx_django_utils.cache import TieredCache
+from mock import patch
 from opaque_keys.edx.keys import CourseKey
 from requests.exceptions import ConnectionError
 
-from ecommerce.core.constants import ENROLLMENT_CODE_SWITCH
-from ecommerce.core.tests import toggle_switch
 from ecommerce.coupons.tests.mixins import DiscoveryMockMixin
 from ecommerce.courses.tests.factories import CourseFactory
 from ecommerce.courses.utils import (
@@ -37,9 +36,8 @@ class UtilsTests(DiscoveryTestMixin, DiscoveryMockMixin, TestCase):
     )
     def test_mode_for_product(self, certificate_type, id_verification_required, mode):
         """ Verify the correct enrollment mode is returned for a given seat. """
-        course = CourseFactory(id='edx/Demo_Course/DemoX', site=self.site)
-        toggle_switch(ENROLLMENT_CODE_SWITCH, True)
-        seat = course.create_or_update_seat(certificate_type, id_verification_required, 10.00, self.partner)
+        course = CourseFactory(id='edx/Demo_Course/DemoX', partner=self.partner)
+        seat = course.create_or_update_seat(certificate_type, id_verification_required, 10.00)
         self.assertEqual(mode_for_product(seat), mode)
         enrollment_code = course.enrollment_code_product
         if enrollment_code:  # We should only have enrollment codes for allowed types
@@ -52,8 +50,8 @@ class UtilsTests(DiscoveryTestMixin, DiscoveryMockMixin, TestCase):
         """ Check to see if course info gets cached """
         self.mock_access_token_response()
         if course_run:
-            course = CourseFactory()
-            product = course.create_or_update_seat('verified', None, 100, self.site.siteconfiguration.partner)
+            course = CourseFactory(partner=self.partner)
+            product = course.create_or_update_seat('verified', None, 100)
             key = CourseKey.from_string(product.attr.course_key)
             self.mock_course_run_detail_endpoint(
                 course, discovery_api_url=self.site_configuration.discovery_api_url
@@ -64,10 +62,10 @@ class UtilsTests(DiscoveryTestMixin, DiscoveryMockMixin, TestCase):
             key = product.attr.UUID
             self.mock_course_detail_endpoint(product, discovery_api_url=self.site_configuration.discovery_api_url)
 
-        cache_key = 'courses_api_detail_{}{}'.format(key, self.site.siteconfiguration.partner.short_code)
+        cache_key = 'courses_api_detail_{}{}'.format(key, self.partner.short_code)
         cache_key = hashlib.md5(cache_key).hexdigest()
-        cached_course = cache.get(cache_key)
-        self.assertIsNone(cached_course)
+        course_cached_response = TieredCache.get_cached_response(cache_key)
+        self.assertFalse(course_cached_response.is_found)
 
         response = get_course_info_from_catalog(self.request.site, product)
 
@@ -76,8 +74,31 @@ class UtilsTests(DiscoveryTestMixin, DiscoveryMockMixin, TestCase):
         else:
             self.assertEqual(response['title'], product.title)
 
-        cached_course = cache.get(cache_key)
-        self.assertEqual(cached_course, response)
+        course_cached_response = TieredCache.get_cached_response(cache_key)
+        self.assertEqual(course_cached_response.value, response)
+
+    def test_get_course_info_from_catalog_cached(self):
+        """
+        Verify that get_course_info_from_catalog is cached
+
+        We expect 2 calls to set_all_tiers in the get_course_info_from_catalog
+        method due to:
+            - the site_configuration api setup
+            - the result being cached
+        """
+        self.mock_access_token_response()
+        product = create_or_update_course_entitlement(
+            'verified', 100, self.partner, 'foo-bar', 'Foo Bar Entitlement')
+        self.mock_course_detail_endpoint(product, discovery_api_url=self.site_configuration.discovery_api_url)
+
+        with patch.object(TieredCache, 'set_all_tiers', wraps=TieredCache.set_all_tiers) as mocked_set_all_tiers:
+            mocked_set_all_tiers.assert_not_called()
+
+            _ = get_course_info_from_catalog(self.request.site, product)
+            self.assertEqual(mocked_set_all_tiers.call_count, 2)
+
+            _ = get_course_info_from_catalog(self.request.site, product)
+            self.assertEqual(mocked_set_all_tiers.call_count, 2)
 
     @ddt.data(
         ('honor', 'Honor'),
@@ -116,8 +137,8 @@ class GetCourseCatalogUtilTests(DiscoveryMockMixin, TestCase):
         """
         cache_key = '{}.catalog.api.data'.format(self.request.site.domain)
         cache_key = hashlib.md5(cache_key).hexdigest()
-        cached_course_catalogs = cache.get(cache_key)
-        self.assertIsNone(cached_course_catalogs)
+        course_catalogs_cached_response = TieredCache.get_cached_response(cache_key)
+        self.assertFalse(course_catalogs_cached_response.is_found)
 
         response = get_course_catalogs(self.request.site)
 
@@ -125,8 +146,8 @@ class GetCourseCatalogUtilTests(DiscoveryMockMixin, TestCase):
         for catalog_index, catalog in enumerate(response):
             self.assertEqual(catalog['name'], catalog_name_list[catalog_index])
 
-        cached_course = cache.get(cache_key)
-        self.assertEqual(cached_course, response)
+        course_cached_response = TieredCache.get_cached_response(cache_key)
+        self.assertEqual(course_cached_response.value, response)
 
     def test_get_course_catalogs_for_single_catalog_with_id(self):
         """
@@ -139,14 +160,14 @@ class GetCourseCatalogUtilTests(DiscoveryMockMixin, TestCase):
         catalog_id = 1
         cache_key = '{}.catalog.api.data.{}'.format(self.request.site.domain, catalog_id)
         cache_key = hashlib.md5(cache_key).hexdigest()
-        cached_course_catalog = cache.get(cache_key)
-        self.assertIsNone(cached_course_catalog)
+        course_catalogs_cached_response = TieredCache.get_cached_response(cache_key)
+        self.assertFalse(course_catalogs_cached_response.is_found)
 
         response = get_course_catalogs(self.request.site, catalog_id)
         self.assertEqual(response['name'], 'All Courses')
 
-        cached_course = cache.get(cache_key)
-        self.assertEqual(cached_course, response)
+        course_cached_response = TieredCache.get_cached_response(cache_key)
+        self.assertEqual(course_cached_response.value, response)
 
         # Verify the API was actually hit (not the cache)
         self._assert_num_requests(2)

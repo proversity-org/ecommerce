@@ -9,6 +9,7 @@ from oscar.test import factories
 from analytics import Client
 from ecommerce.courses.tests.factories import CourseFactory
 from ecommerce.extensions.analytics.utils import (
+    ECOM_TRACKING_ID_FMT,
     get_google_analytics_client_id,
     parse_tracking_context,
     prepare_analytics_data,
@@ -18,11 +19,11 @@ from ecommerce.extensions.analytics.utils import (
 from ecommerce.extensions.basket.tests.mixins import BasketMixin
 from ecommerce.extensions.catalogue.tests.mixins import DiscoveryTestMixin
 from ecommerce.extensions.test.factories import create_basket
-from ecommerce.tests.testcases import TestCase
+from ecommerce.tests.testcases import TransactionTestCase
 
 
 @ddt.ddt
-class UtilsTest(DiscoveryTestMixin, BasketMixin, TestCase):
+class UtilsTest(DiscoveryTestMixin, BasketMixin, TransactionTestCase):
     """ Tests for the analytics utils. """
 
     def test_prepare_analytics_data(self):
@@ -62,7 +63,7 @@ class UtilsTest(DiscoveryTestMixin, BasketMixin, TestCase):
         # If no LMS user ID is provided, we should create one based on the E-Commerce ID
         del tracking_context['lms_user_id']
         user = self.create_user(tracking_context=tracking_context)
-        expected = ('ecommerce-{}'.format(user.id), tracking_context['ga_client_id'], tracking_context['lms_ip'])
+        expected = (ECOM_TRACKING_ID_FMT.format(user.id), tracking_context['ga_client_id'], tracking_context['lms_ip'])
         self.assertEqual(parse_tracking_context(user), expected)
 
     def test_track_segment_event_without_segment_key(self):
@@ -78,25 +79,19 @@ class UtilsTest(DiscoveryTestMixin, BasketMixin, TestCase):
 
     def test_track_segment_event(self):
         """ The function should fire an event to Segment if the site is properly configured. """
-        properties = {'key': 'value'}
         self.site_configuration.segment_key = 'fake-key'
         self.site_configuration.save()
-        user = self.create_user(
-            tracking_context={
-                'ga_client_id': 'test-client-id',
-                'lms_user_id': 'foo',
-                'lms_ip': '18.0.0.1',
-            }
-        )
+        user, event, properties = self._get_generic_segment_event_parameters()
         user_tracking_id, ga_client_id, lms_ip = parse_tracking_context(user)
         context = {
             'ip': lms_ip,
             'Google Analytics': {
                 'clientId': ga_client_id
-            }
+            },
+            'page': {
+                'url': 'https://testserver.fake/'
+            },
         }
-        event = 'foo'
-
         with mock.patch.object(Client, 'track') as mock_track:
             track_segment_event(self.site, user, event, properties)
             mock_track.assert_called_once_with(user_tracking_id, event, properties, context=context)
@@ -107,8 +102,8 @@ class UtilsTest(DiscoveryTestMixin, BasketMixin, TestCase):
         basket.site = self.site
         basket.owner = factories.UserFactory()
         basket.save()
-        course = CourseFactory()
-        seat = course.create_or_update_seat('verified', True, 100, self.partner)
+        course = CourseFactory(partner=self.partner)
+        seat = course.create_or_update_seat('verified', True, 100)
         basket.add_product(seat)
         line = basket.lines.first()
         expected = {
@@ -152,3 +147,14 @@ class UtilsTest(DiscoveryTestMixin, BasketMixin, TestCase):
 
         expected_client_id = get_google_analytics_client_id(request)
         self.assertEqual(ga_client_id, expected_client_id)
+
+    def _get_generic_segment_event_parameters(self):
+        properties = {'key': 'value'}
+        user = self.create_user(
+            tracking_context={
+                'ga_client_id': 'test-client-id',
+                'lms_user_id': 'foo',
+                'lms_ip': '18.0.0.1',
+            })
+        event = 'foo'
+        return user, event, properties

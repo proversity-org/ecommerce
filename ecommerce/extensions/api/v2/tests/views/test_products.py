@@ -4,11 +4,11 @@ import datetime
 import json
 
 import pytz
-from django.core.urlresolvers import reverse
 from django.test import RequestFactory
+from django.urls import reverse
 from oscar.core.loading import get_model
 
-from ecommerce.core.constants import COUPON_PRODUCT_CLASS_NAME, COURSE_ENTITLEMENT_PRODUCT_CLASS_NAME
+from ecommerce.core.constants import COUPON_PRODUCT_CLASS_NAME
 from ecommerce.coupons.tests.mixins import CouponMixin
 from ecommerce.courses.tests.factories import CourseFactory
 from ecommerce.extensions.api.serializers import ProductSerializer
@@ -31,11 +31,11 @@ class ProductViewSetBase(ProductSerializerMixin, DiscoveryTestMixin, TestCase):
         super(ProductViewSetBase, self).setUp()
         self.user = self.create_user(is_staff=True)
         self.client.login(username=self.user.username, password=self.password)
-        self.course = CourseFactory(id='edX/DemoX/Demo_Course', name='Test Course', site=self.site)
+        self.course = CourseFactory(id='edX/DemoX/Demo_Course', name='Test Course', partner=self.partner)
 
         # TODO Update the expiration date by 2099-12-31
         expires = datetime.datetime(2100, 1, 1, tzinfo=pytz.UTC)
-        self.seat = self.course.create_or_update_seat('honor', False, 0, self.partner, expires=expires)
+        self.seat = self.course.create_or_update_seat('honor', False, 0, expires=expires)
 
 
 class ProductViewSetTests(ProductViewSetBase):
@@ -92,8 +92,8 @@ class ProductViewSetTests(ProductViewSetBase):
     def test_list_for_course(self):
         """ Verify the view supports listing products for a single course. """
         # Create another course and seat to confirm filtering.
-        other_course = CourseFactory(id='edX/DemoX/XYZ', name='Test Course 2', site=self.site)
-        other_course.create_or_update_seat('honor', False, 0, self.partner)
+        other_course = CourseFactory(id='edX/DemoX/XYZ', name='Test Course 2', partner=self.partner)
+        other_course.create_or_update_seat('honor', False, 0)
 
         path = reverse('api:v2:course-product-list', kwargs={'parent_lookup_course_id': self.course.id})
         response = self.client.get(path)
@@ -133,49 +133,6 @@ class ProductViewSetTests(ProductViewSetBase):
             'results': []
         }
         self.assertDictEqual(json.loads(response.content), expected)
-
-
-class ProductViewSetCourseEntitlementTests(ProductViewSetBase):
-    def setUp(self):
-        self.entitlement_data = {
-            "product_class": COURSE_ENTITLEMENT_PRODUCT_CLASS_NAME,
-            "title": "Test Course",
-            "price": 50,
-            "expires": "2018-10-10T00:00:00Z",
-            "attribute_values": [
-                {
-                    "name": "certificate_type",
-                    "code": "certificate_type",
-                    "value": "verified"
-                },
-                {
-                    "name": "UUID",
-                    "code": "UUID",
-                    "value": "f9044e15-133f-4a4f-b587-99530e8a8e88"
-                }
-            ],
-            "is_available_to_buy": "false"
-        }
-        super(ProductViewSetCourseEntitlementTests, self).setUp()
-
-    def test_entitlement_post(self):
-        """ Verify the view allows individual Course Entitlement products to be made via post"""
-        response = self.client.post('/api/v2/products/', json.dumps(self.entitlement_data), JSON_CONTENT_TYPE)
-        self.assertEqual(response.status_code, 201)
-
-    def test_entitlement_post_bad_request(self):
-        """ Verify the view allows individual Course Entitlement products to be made via post"""
-        bad_entitlement_data = self.entitlement_data
-        bad_entitlement_data['attribute_values'] = []
-        response = self.client.post('/api/v2/products/', json.dumps(bad_entitlement_data), JSON_CONTENT_TYPE)
-        self.assertEqual(response.status_code, 400)
-
-    def test_non_entitlement_post(self):
-        """ Verify the view allows individual Course Entitlement products to be made via post"""
-        bad_entitlement_data = self.entitlement_data
-        bad_entitlement_data['product_class'] = 'Seat'
-        response = self.client.post('/api/v2/products/', json.dumps(bad_entitlement_data), JSON_CONTENT_TYPE)
-        self.assertEqual(response.status_code, 400)
 
 
 class ProductViewSetCouponTests(CouponMixin, ProductViewSetBase):

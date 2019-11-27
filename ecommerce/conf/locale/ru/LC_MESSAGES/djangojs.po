@@ -1,9 +1,11 @@
-# SOME DESCRIPTIVE TITLE.
-# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
-# This file is distributed under the same license as the PACKAGE package.
+# #-#-#-#-#  django.po (ecommerce)  #-#-#-#-#
+# edX translation file
+# Copyright (C) 2018 edX
+# This file is distributed under the GNU AFFERO GENERAL PUBLIC LICENSE.
 # 
 # Translators:
-# Liubov Fomicheva <liubov.nelapa@gmail.com>, 2017
+# Iaroslav V <yivasilev@fa.ru>, 2018
+# Liubov Fomicheva <liubov.nelapa@gmail.com>, 2017-2018
 # Maksimenkova Olga <omaksimenkova@hse.ru>, 2015
 # Michael Savin <m.savin.ru@gmail.com>, 2015-2016
 # Weyedide <weyedide@gmail.com>, 2015
@@ -12,9 +14,9 @@ msgid ""
 msgstr ""
 "Project-Id-Version: edx-platform\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2017-12-15 09:43-0500\n"
-"PO-Revision-Date: 2017-11-07 08:15+0000\n"
-"Last-Translator: Ned Batchelder <ned@edx.org>\n"
+"POT-Creation-Date: 2018-04-05 11:00+0000\n"
+"PO-Revision-Date: 2018-10-17 17:41+0000\n"
+"Last-Translator: Michael Savin <m.savin.ru@gmail.com>\n"
 "Language-Team: Russian (http://www.transifex.com/open-edx/edx-platform/language/ru/)\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
@@ -24,7 +26,7 @@ msgstr ""
 
 #: ecommerce/static/js/models/coupon_model.js:33
 msgid "This field is required."
-msgstr ""
+msgstr "Это обязательное поле."
 
 #: ecommerce/static/js/models/coupon_model.js:34
 msgid "This value must be a number."
@@ -167,43 +169,43 @@ msgstr ""
 msgid "All credit seats must designate a number of credit hours."
 msgstr "Должно быть определено количество зачётных единиц."
 
-#: ecommerce/static/js/pages/basket_page.js:26
+#: ecommerce/static/js/pages/basket_page.js:27
 msgid "Problem occurred during checkout. Please contact support."
 msgstr ""
 
-#: ecommerce/static/js/pages/basket_page.js:99
+#: ecommerce/static/js/pages/basket_page.js:101
 msgid "This field is required"
 msgstr ""
 
-#: ecommerce/static/js/pages/basket_page.js:134
+#: ecommerce/static/js/pages/basket_page.js:136
 msgid "Invalid card number"
 msgstr ""
 
-#: ecommerce/static/js/pages/basket_page.js:136
+#: ecommerce/static/js/pages/basket_page.js:138
 msgid "Unsupported card type"
 msgstr ""
 
-#: ecommerce/static/js/pages/basket_page.js:138
+#: ecommerce/static/js/pages/basket_page.js:140
 msgid "Invalid security number"
 msgstr ""
 
-#: ecommerce/static/js/pages/basket_page.js:143
+#: ecommerce/static/js/pages/basket_page.js:145
 msgid "Invalid month"
 msgstr ""
 
-#: ecommerce/static/js/pages/basket_page.js:145
+#: ecommerce/static/js/pages/basket_page.js:147
 msgid "Invalid year"
 msgstr ""
 
-#: ecommerce/static/js/pages/basket_page.js:147
+#: ecommerce/static/js/pages/basket_page.js:149
 msgid "Card expired"
 msgstr ""
 
-#: ecommerce/static/js/pages/basket_page.js:465
+#: ecommerce/static/js/pages/basket_page.js:485
 msgid "<Choose state/province>"
 msgstr ""
 
-#: ecommerce/static/js/pages/basket_page.js:466
+#: ecommerce/static/js/pages/basket_page.js:486
 msgid "State/Province (required)"
 msgstr ""
 
@@ -229,7 +231,7 @@ msgstr "Создайте новый курс"
 
 #: ecommerce/static/js/pages/course_detail_page.js:13
 msgid "View Course"
-msgstr "Посмотреть курс"
+msgstr "Просмотр курса"
 
 #: ecommerce/static/js/pages/course_edit_page.js:13
 msgid "Edit Course"
@@ -241,7 +243,7 @@ msgstr "Курсы"
 
 #: ecommerce/static/js/pages/offer_page.js:14
 msgid "Redeem"
-msgstr ""
+msgstr "Использовать"
 
 #: ecommerce/static/js/pages/receipt_page.js:21
 msgid ""
@@ -382,13 +384,13 @@ msgstr "Профессиональное образование"
 msgid ""
 "Paid certificate track with initial verification and Professional Education "
 "Certificate"
-msgstr ""
+msgstr "Платный курс с предварительным удостоверением личности и Сертификатом повышения квалификации"
 
 #: ecommerce/static/js/views/course_form_view.js:72
 msgid ""
 "Paid certificate track with initial verification and Verified Certificate, "
 "and option to purchase credit"
-msgstr ""
+msgstr "Платный курс с предварительным удостоверением личности, Подтверждённым сертификатом и возможностью получения зачётных единиц."
 
 #. Translators: _START_, _END_, and _TOTAL_ are placeholders. Do NOT translate
 #. them.

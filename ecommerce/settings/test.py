@@ -8,6 +8,7 @@ from ecommerce.settings.base import *
 
 SITE_ID = 1
 PROTOCOL = 'http'
+ALLOWED_HOSTS = ['*']
 
 # TEST SETTINGS
 INSTALLED_APPS += (
@@ -23,17 +24,15 @@ LOGGING['handlers']['local'] = {'class': 'logging.NullHandler'}
 LOGGING['handlers']['console'] = {'class': 'logging.NullHandler'}
 
 if os.getenv('DISABLE_MIGRATIONS'):
-    class DisableMigrations(object):
-        def __contains__(self, item):
-            return True
+    MIGRATION_MODULES = {
+        'default': None,
+        'sessions': None,
+        'profiles': None,
+        'snippets': None,
+        'scaffold_templates': None,
+    }
 
-        def __getitem__(self, item):
-            return "notmigrations"
-
-
-    MIGRATION_MODULES = DisableMigrations()
 # END TEST SETTINGS
-
 
 DATABASES = {
     'default': {
@@ -48,13 +47,16 @@ DATABASES = {
     },
 }
 
-
 # AUTHENTICATION
 ENABLE_AUTO_AUTH = True
 
 JWT_AUTH.update({
-    'JWT_SECRET_KEY': 'insecure-secret-key',
-    'JWT_ISSUERS': ('test-issuer',),
+    'JWT_SECRET_KEY': 'test-secret-key',
+    'JWT_ISSUERS': [{
+        'SECRET_KEY': 'test-secret-key',
+        'AUDIENCE': 'test-audience',
+        'ISSUER': 'test-issuer'
+    }],
 })
 
 PASSWORD_HASHERS = (
@@ -161,3 +163,13 @@ ENTERPRISE_API_URL = urljoin(ENTERPRISE_SERVICE_URL, 'api/v1/')
 
 # Don't bother sending fake events to Segment. Doing so creates unnecessary threads.
 SEND_SEGMENT_EVENTS = False
+
+# SPEED
+DEBUG = False
+TEMPLATE_DEBUG = False
+CELERY_EAGER_PROPAGATES_EXCEPTIONS = True
+BROKER_BACKEND = 'memory'
+
+#SAILTHRU settings
+SAILTHRU_KEY = 'abc123'
+SAILTHRU_SECRET = 'top_secret'

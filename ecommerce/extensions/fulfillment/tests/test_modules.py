@@ -9,7 +9,6 @@ import mock
 from django.test import override_settings
 from oscar.core.loading import get_class, get_model
 from oscar.test import factories
-from oscar.test.newfactories import BasketFactory, UserFactory
 from requests.exceptions import ConnectionError, Timeout
 from testfixtures import LogCapture
 
@@ -18,10 +17,8 @@ from ecommerce.core.constants import (
     COURSE_ENTITLEMENT_PRODUCT_CLASS_NAME,
     DONATIONS_FROM_CHECKOUT_TESTS_PRODUCT_TYPE_NAME,
     ENROLLMENT_CODE_PRODUCT_CLASS_NAME,
-    ENROLLMENT_CODE_SWITCH,
     SEAT_PRODUCT_CLASS_NAME
 )
-from ecommerce.core.tests import toggle_switch
 from ecommerce.core.url_utils import get_lms_enrollment_api_url, get_lms_entitlement_api_url
 from ecommerce.coupons.tests.mixins import CouponMixin
 from ecommerce.courses.tests.factories import CourseFactory
@@ -46,7 +43,7 @@ from ecommerce.tests.testcases import TestCase
 JSON = 'application/json'
 LOGGER_NAME = 'ecommerce.extensions.analytics.utils'
 
-Applicator = get_class('offer.utils', 'Applicator')
+Applicator = get_class('offer.applicator', 'Applicator')
 Benefit = get_model('offer', 'Benefit')
 Catalog = get_model('catalogue', 'Catalog')
 Option = get_model('catalogue', 'Option')
@@ -69,16 +66,16 @@ class EnrollmentFulfillmentModuleTests(ProgramTestMixin, DiscoveryTestMixin, Ful
     def setUp(self):
         super(EnrollmentFulfillmentModuleTests, self).setUp()
 
-        self.user = UserFactory()
+        self.user = factories.UserFactory()
         self.user.tracking_context = {
             'ga_client_id': 'test-client-id', 'lms_user_id': 'test-user-id', 'lms_ip': '127.0.0.1'
         }
         self.user.save()
-        self.course = CourseFactory(id=self.course_id, name='Demo Course', site=self.site)
+        self.course = CourseFactory(id=self.course_id, name='Demo Course', partner=self.partner)
 
-        self.seat = self.course.create_or_update_seat(self.certificate_type, False, 100, self.partner, self.provider)
+        self.seat = self.course.create_or_update_seat(self.certificate_type, False, 100, self.provider)
 
-        basket = BasketFactory(owner=self.user, site=self.site)
+        basket = factories.BasketFactory(owner=self.user, site=self.site)
         basket.add_product(self.seat, 1)
         self.order = create_order(number=1, basket=basket, user=self.user)
 
@@ -94,9 +91,9 @@ class EnrollmentFulfillmentModuleTests(ProgramTestMixin, DiscoveryTestMixin, Ful
         """
         self.certificate_type = certificate_type
         self.provider = provider
-        self.seat = self.course.create_or_update_seat(self.certificate_type, False, 100, self.partner, self.provider)
+        self.seat = self.course.create_or_update_seat(self.certificate_type, False, 100, self.provider)
 
-        basket = BasketFactory(owner=self.user, site=self.site)
+        basket = factories.BasketFactory(owner=self.user, site=self.site)
         basket.add_product(self.seat, 1)
         self.order = create_order(number=2, basket=basket, user=self.user)
 
@@ -119,6 +116,7 @@ class EnrollmentFulfillmentModuleTests(ProgramTestMixin, DiscoveryTestMixin, Ful
             coupon=coupon,
             end_datetime=datetime.datetime.now() + datetime.timedelta(days=30),
             enterprise_customer=None,
+            enterprise_customer_catalog=None,
             name="Test Voucher",
             quantity=10,
             start_datetime=datetime.datetime.now(),
@@ -449,8 +447,8 @@ class CouponFulfillmentModuleTest(CouponMixin, FulfillmentTestMixin, TestCase):
     def setUp(self):
         super(CouponFulfillmentModuleTest, self).setUp()
         coupon = self.create_coupon()
-        user = UserFactory()
-        basket = BasketFactory(owner=user, site=self.site)
+        user = factories.UserFactory()
+        basket = factories.BasketFactory(owner=user, site=self.site)
         basket.add_product(coupon, 1)
         self.order = create_order(number=1, basket=basket, user=user)
 
@@ -491,8 +489,8 @@ class DonationsFromCheckoutTestFulfillmentModuleTest(FulfillmentTestMixin, TestC
             product_class=donation_class,
             title='Test product'
         )
-        user = UserFactory()
-        basket = BasketFactory(owner=user, site=self.site)
+        user = factories.UserFactory()
+        basket = factories.BasketFactory(owner=user, site=self.site)
         factories.create_stockrecord(donation, num_in_stock=2, price_excl_tax=10)
         basket.add_product(donation, 1)
         self.order = create_order(number=1, basket=basket, user=user)
@@ -526,12 +524,11 @@ class EnrollmentCodeFulfillmentModuleTests(DiscoveryTestMixin, TestCase):
 
     def setUp(self):
         super(EnrollmentCodeFulfillmentModuleTests, self).setUp()
-        toggle_switch(ENROLLMENT_CODE_SWITCH, True)
-        course = CourseFactory()
-        course.create_or_update_seat('verified', True, 50, self.partner, create_enrollment_code=True)
+        course = CourseFactory(partner=self.partner)
+        course.create_or_update_seat('verified', True, 50, create_enrollment_code=True)
         enrollment_code = Product.objects.get(product_class__name=ENROLLMENT_CODE_PRODUCT_CLASS_NAME)
-        user = UserFactory()
-        basket = BasketFactory(owner=user, site=self.site)
+        user = factories.UserFactory()
+        basket = factories.BasketFactory(owner=user, site=self.site)
         basket.add_product(enrollment_code, self.QUANTITY)
         self.order = create_order(number=1, basket=basket, user=user)
 
@@ -560,6 +557,7 @@ class EnrollmentCodeFulfillmentModuleTests(DiscoveryTestMixin, TestCase):
         self.assertEqual(completed_lines[0].status, LINE.COMPLETE)
         self.assertEqual(OrderLineVouchers.objects.count(), 1)
         self.assertEqual(OrderLineVouchers.objects.first().vouchers.count(), self.QUANTITY)
+        self.assertIsNotNone(OrderLineVouchers.objects.first().vouchers.first().benefit.range.catalog)
 
     def test_revoke_line(self):
         line = self.order.lines.first()
@@ -572,10 +570,10 @@ class EntitlementFulfillmentModuleTests(FulfillmentTestMixin, TestCase):
 
     def setUp(self):
         super(EntitlementFulfillmentModuleTests, self).setUp()
-        self.user = UserFactory()
+        self.user = factories.UserFactory()
         self.course_entitlement = create_or_update_course_entitlement(
             'verified', 100, self.partner, '111-222-333-444', 'Course Entitlement')
-        basket = BasketFactory(owner=self.user, site=self.site)
+        basket = factories.BasketFactory(owner=self.user, site=self.site)
         basket.add_product(self.course_entitlement, 1)
         self.entitlement_option = Option.objects.get(name='Course Entitlement')
         self.order = create_order(number=1, basket=basket, user=self.user)
@@ -687,7 +685,7 @@ class EntitlementFulfillmentModuleTests(FulfillmentTestMixin, TestCase):
         self.assertFalse(CourseEntitlementFulfillmentModule().revoke_line(line))
 
     @httpretty.activate
-    def test_entitlement_module_fulfill_connection_error(self):
+    def test_entitlement_module_fulfill_unknown_error(self):
         """Test Course Entitlement Fulfillment with exception when posting to LMS."""
 
         self.mock_access_token_response()
@@ -708,6 +706,26 @@ class EntitlementFulfillmentModuleTests(FulfillmentTestMixin, TestCase):
                 (logger_name, 'INFO', 'Finished fulfilling "Course Entitlement" product types for order [{}]'.
                  format(self.order.number))
             )
+
+    def test_entitlement_module_fulfill_network_error(self):
+        """Test Course Entitlement Fulfillment with exceptions(Timeout/ConnectionError) when posting to LMS."""
+
+        logger_name = 'ecommerce.extensions.fulfillment.modules'
+
+        line = self.order.lines.first()
+        with mock.patch('edx_rest_api_client.client.EdxRestApiClient',
+                        side_effect=ConnectionError):
+            with LogCapture(logger_name) as l:
+                CourseEntitlementFulfillmentModule().fulfill_product(self.order, list(self.order.lines.all()))
+                self.assertEqual(LINE.FULFILLMENT_NETWORK_ERROR, self.order.lines.all()[0].status)
+                l.check(
+                    (logger_name, 'INFO', 'Attempting to fulfill "Course Entitlement" product types for order [{}]'.
+                     format(self.order.number)),
+                    (logger_name, 'ERROR', 'Unable to fulfill line [{}] of order [{}] due to a network problem'.
+                     format(line.id, self.order.number)),
+                    (logger_name, 'INFO', 'Finished fulfilling "Course Entitlement" product types for order [{}]'.
+                     format(self.order.number))
+                )
 
     def test_entitlement_module_fulfill_bad_attributes(self):
         """ Test the Entitlement Fulfillment Module fails when the product does not have proper attributes. """

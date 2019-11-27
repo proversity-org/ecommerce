@@ -16,13 +16,14 @@ from oscar.apps.partner import strategy
 from oscar.apps.payment.exceptions import PaymentError
 from oscar.core.loading import get_class, get_model
 
+from ecommerce.extensions.basket.utils import basket_add_organization_attribute
 from ecommerce.extensions.checkout.mixins import EdxOrderPlacementMixin
 from ecommerce.extensions.checkout.utils import get_receipt_page_url
 from ecommerce.extensions.payment.processors.paypal import Paypal
 
 logger = logging.getLogger(__name__)
 
-Applicator = get_class('offer.utils', 'Applicator')
+Applicator = get_class('offer.applicator', 'Applicator')
 Basket = get_model('basket', 'Basket')
 BillingAddress = get_model('order', 'BillingAddress')
 Country = get_model('address', 'Country')
@@ -66,6 +67,8 @@ class PaypalPaymentExecutionView(EdxOrderPlacementMixin, View):
             ).basket
             basket.strategy = strategy.Default()
             Applicator().apply(basket, basket.owner, self.request)
+
+            basket_add_organization_attribute(basket, self.request.GET)
             return basket
         except MultipleObjectsReturned:
             logger.warning(u"Duplicate payment ID [%s] received from PayPal.", payment_id)
@@ -101,6 +104,11 @@ class PaypalPaymentExecutionView(EdxOrderPlacementMixin, View):
             logger.exception('Attempts to handle payment for basket [%d] failed.', basket.id)
             return redirect(receipt_url)
 
+        self.call_handle_order_placement(basket, request)
+
+        return redirect(receipt_url)
+
+    def call_handle_order_placement(self, basket, request):
         try:
             shipping_method = NoShippingRequired()
             shipping_charge = shipping_method.calculate(basket)
@@ -112,7 +120,7 @@ class PaypalPaymentExecutionView(EdxOrderPlacementMixin, View):
             # than to retrieve an invoice number from PayPal.
             order_number = basket.order_number
 
-            self.handle_order_placement(
+            order = self.handle_order_placement(
                 order_number=order_number,
                 user=user,
                 basket=basket,
@@ -123,11 +131,10 @@ class PaypalPaymentExecutionView(EdxOrderPlacementMixin, View):
                 order_total=order_total,
                 request=request
             )
+            self.handle_post_order(order)
 
-            return redirect(receipt_url)
-        except:  # pylint: disable=bare-except
-            logger.exception(self.order_placement_failure_msg, basket.id)
-            return redirect(receipt_url)
+        except Exception:  # pylint: disable=broad-except
+            self.log_order_placement_exception(basket.order_number, basket.id)
 
 
 class PaypalProfileAdminView(View):

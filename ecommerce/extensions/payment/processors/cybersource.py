@@ -9,9 +9,9 @@ import uuid
 from decimal import Decimal
 
 from django.conf import settings
-from django.core.urlresolvers import reverse
+from django.urls import reverse
 from oscar.apps.payment.exceptions import GatewayError, TransactionDeclined, UserCancelled
-from oscar.core.loading import get_class
+from oscar.core.loading import get_class, get_model
 from zeep import Client
 from zeep.helpers import serialize_object
 from zeep.wsse import UsernameToken
@@ -21,6 +21,7 @@ from ecommerce.core.url_utils import get_ecommerce_url
 from ecommerce.extensions.checkout.utils import get_receipt_page_url
 from ecommerce.extensions.payment.constants import APPLE_PAY_CYBERSOURCE_CARD_TYPE_MAP, CYBERSOURCE_CARD_TYPE_MAP
 from ecommerce.extensions.payment.exceptions import (
+    AuthorizationError,
     DuplicateReferenceNumber,
     InvalidCybersourceDecision,
     InvalidSignatureError,
@@ -38,6 +39,7 @@ from ecommerce.extensions.payment.utils import clean_field_value
 
 logger = logging.getLogger(__name__)
 
+Order = get_model('order', 'Order')
 OrderNumberGenerator = get_class('order.utils', 'OrderNumberGenerator')
 
 
@@ -233,11 +235,12 @@ class Cybersource(ApplePayMixin, BaseClientSidePaymentProcessor):
             basket (Basket): Basket being purchased via the payment processor.
 
         Raises:
+            AuthorizationError: Authorization was declined.
             UserCancelled: Indicates the user cancelled payment.
             TransactionDeclined: Indicates the payment was declined by the processor.
             GatewayError: Indicates a general error on the part of the processor.
             InvalidCyberSourceDecision: Indicates an unknown decision value.
-                Known values are ACCEPT, CANCEL, DECLINE, ERROR.
+                Known values are ACCEPT, CANCEL, DECLINE, ERROR, REVIEW.
             PartialAuthorizationError: Indicates only a portion of the requested amount was authorized.
 
         Returns:
@@ -255,24 +258,36 @@ class Cybersource(ApplePayMixin, BaseClientSidePaymentProcessor):
             reason_code = int(response['reason_code'])
 
             if decision == 'error' and reason_code == 104:
-                raise DuplicateReferenceNumber
-
-            raise {
-                'cancel': UserCancelled,
-                'decline': TransactionDeclined,
-                'error': GatewayError
-            }.get(decision, InvalidCybersourceDecision)
+                # This means user submitted payment request twice within 15 min.
+                # We need to check if user first payment notification was handled successfuly and user has an order
+                # if user has an order we can raise DuplicateReferenceNumber exception else we need to continue
+                # the order creation process. to upgrade user in correct course mode.
+                if Order.objects.filter(number=response['req_reference_number']).exists():
+                    raise DuplicateReferenceNumber
+                else:
+                    logger.info(
+                        'Received duplicate CyberSource payment notification for basket [%d] which is not associated '
+                        'with any existing order. Continuing to validation and order creation processes.',
+                        basket.id,
+                    )
+            else:
+                raise {
+                    'cancel': UserCancelled,
+                    'decline': TransactionDeclined,
+                    'error': GatewayError,
+                    'review': AuthorizationError,
+                }.get(decision, InvalidCybersourceDecision)
 
         # Raise an exception if the authorized amount differs from the requested amount.
         # Note (CCB): We should never reach this point in production since partial authorization is disabled
         # for our account, and should remain that way until we have a proper solution to allowing users to
-        # complete authorization for the entire order.
-        if response['auth_amount'] != response['req_amount']:
+        # complete authorization for the entire order
+        if response['auth_amount'] and response['auth_amount'] != response['req_amount']:
             raise PartialAuthorizationError
 
         currency = response['req_currency']
         total = Decimal(response['req_amount'])
-        transaction_id = response['transaction_id']
+        transaction_id = response.get('transaction_id', None)  # Error Notifications does not include a transaction id.
         card_number = response['req_card_number']
         card_type = CYBERSOURCE_CARD_TYPE_MAP.get(response['req_card_type'])
 

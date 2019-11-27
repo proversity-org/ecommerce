@@ -22,7 +22,7 @@ class ProgramCourseRunSeatsConditionTests(ProgramTestMixin, TestCase):
     def setUp(self):
         super(ProgramCourseRunSeatsConditionTests, self).setUp()
         self.condition = factories.ProgramCourseRunSeatsConditionFactory()
-        self.test_product = ProductFactory(stockrecords__price_excl_tax=10)
+        self.test_product = ProductFactory(stockrecords__price_excl_tax=10, categories=[])
         self.site.siteconfiguration.enable_partial_program = True
 
     def test_name(self):
@@ -35,7 +35,7 @@ class ProgramCourseRunSeatsConditionTests(ProgramTestMixin, TestCase):
     def test_is_satisfied_no_enrollments(self):
         """ The method should return True if the basket contains one course run seat corresponding to each
         course in the program. """
-        offer = factories.ProgramOfferFactory(site=self.site, condition=self.condition)
+        offer = factories.ProgramOfferFactory(partner=self.partner, condition=self.condition)
         basket = factories.BasketFactory(site=self.site, owner=factories.UserFactory())
         program = self.mock_program_detail_endpoint(
             self.condition.program_uuid, self.site_configuration.discovery_api_url
@@ -87,13 +87,11 @@ class ProgramCourseRunSeatsConditionTests(ProgramTestMixin, TestCase):
     def test_is_satisfied_with_enrollments(self):
         """ The condition should be satisfied if one valid course run from each course is in either the
         basket or the user's enrolled courses and the site has enabled partial program offers. """
-        offer = factories.ProgramOfferFactory(site=self.site, condition=self.condition)
+        offer = factories.ProgramOfferFactory(partner=self.partner, condition=self.condition)
         basket = factories.BasketFactory(site=self.site, owner=factories.UserFactory())
         program = self.mock_program_detail_endpoint(
             self.condition.program_uuid, self.site_configuration.discovery_api_url
         )
-        enrollments = [{'mode': 'verified', 'course_details': {'course_id': 'course-v1:test-org+course+1'}},
-                       {'mode': 'verified', 'course_details': {'course_id': 'course-v1:test-org+course+2'}}]
 
         # Extract one verified seat for each course
         verified_seats = []
@@ -103,8 +101,14 @@ class ProgramCourseRunSeatsConditionTests(ProgramTestMixin, TestCase):
                 if seat.attr.id_verification_required:
                     verified_seats.append(seat)
 
+        # Add verified enrollments for the first two program courses to the mock user data
+        enrollments = [
+            {'mode': 'verified', 'course_details': {'course_id': program['courses'][0]['course_runs'][0]['key']}},
+            {'mode': 'verified', 'course_details': {'course_id': program['courses'][1]['course_runs'][0]['key']}}
+        ]
         self.mock_user_data(basket.owner.username, owned_products=enrollments)
-        # If the user has not added all of the remaining courses in program to their basket,
+
+        # If the user has not added all of the remaining courses in the program to their basket,
         # the condition should not be satisfied
         basket.flush()
         for seat in verified_seats[2:len(verified_seats) - 1]:
@@ -131,7 +135,7 @@ class ProgramCourseRunSeatsConditionTests(ProgramTestMixin, TestCase):
     @ddt.data(HttpNotFoundError, SlumberBaseException, Timeout)
     def test_is_satisfied_with_exception_for_programs(self, value):
         """ The method should return False if there is an exception when trying to get program details. """
-        offer = factories.ProgramOfferFactory(site=self.site, condition=self.condition)
+        offer = factories.ProgramOfferFactory(partner=self.partner, condition=self.condition)
         basket = factories.BasketFactory(site=self.site, owner=factories.UserFactory())
         basket.add_product(self.test_product)
 
@@ -143,7 +147,7 @@ class ProgramCourseRunSeatsConditionTests(ProgramTestMixin, TestCase):
     def test_is_satisfied_with_exception_for_enrollments(self):
         """ The method should return True despite having an error at the enrollment check, given 1 course run seat
         corresponding to each course in the program. """
-        offer = factories.ProgramOfferFactory(site=self.site, condition=self.condition)
+        offer = factories.ProgramOfferFactory(partner=self.partner, condition=self.condition)
         basket = factories.BasketFactory(site=self.site, owner=factories.UserFactory())
         program = self.mock_program_detail_endpoint(
             self.condition.program_uuid,
@@ -160,7 +164,7 @@ class ProgramCourseRunSeatsConditionTests(ProgramTestMixin, TestCase):
 
     def test_is_satisfied_free_basket(self):
         """ Ensure the basket returns False if the basket total is zero. """
-        offer = factories.ProgramOfferFactory(site=self.site, condition=self.condition)
+        offer = factories.ProgramOfferFactory(partner=self.partner, condition=self.condition)
         basket = factories.BasketFactory(site=self.site, owner=factories.UserFactory())
         test_product = factories.ProductFactory(stockrecords__price_excl_tax=0,
                                                 stockrecords__partner__short_code='test')
@@ -168,15 +172,15 @@ class ProgramCourseRunSeatsConditionTests(ProgramTestMixin, TestCase):
         self.assertFalse(self.condition.is_satisfied(offer, basket))
 
     def test_is_satisfied_site_mismatch(self):
-        """ Ensure the condition returns False if the offer site does not match the basket site. """
-        offer = factories.ProgramOfferFactory(site=SiteConfigurationFactory().site, condition=self.condition)
+        """ Ensure the condition returns False if the offer partner does not match the basket site partner. """
+        offer = factories.ProgramOfferFactory(partner=SiteConfigurationFactory().partner, condition=self.condition)
         basket = factories.BasketFactory(site=self.site, owner=factories.UserFactory())
         basket.add_product(self.test_product)
         self.assertFalse(self.condition.is_satisfied(offer, basket))
 
     def test_is_satisfied_program_retrieval_failure(self):
         """ The method should return False if no program is retrieved """
-        offer = factories.ProgramOfferFactory(site=self.site, condition=self.condition)
+        offer = factories.ProgramOfferFactory(partner=self.partner, condition=self.condition)
         basket = factories.BasketFactory(site=self.site, owner=factories.UserFactory())
         basket.add_product(self.test_product)
         self.condition.program_uuid = None
@@ -188,7 +192,7 @@ class ProgramCourseRunSeatsConditionTests(ProgramTestMixin, TestCase):
         The condition should be satisfied if, for each course in the program, their is either an entitlement sku in the
         basket or the user already has an entitlement for the course and the site has enabled partial program offers.
         """
-        offer = factories.ProgramOfferFactory(site=self.site, condition=self.condition)
+        offer = factories.ProgramOfferFactory(partner=self.partner, condition=self.condition)
         basket = factories.BasketFactory(site=self.site, owner=factories.UserFactory())
         program = self.mock_program_detail_endpoint(
             self.condition.program_uuid, self.site_configuration.discovery_api_url
@@ -241,7 +245,7 @@ class ProgramCourseRunSeatsConditionTests(ProgramTestMixin, TestCase):
         """
         User entitlements should not be retrieved if no course in the program has a course entitlement product
         """
-        offer = factories.ProgramOfferFactory(site=self.site, condition=self.condition)
+        offer = factories.ProgramOfferFactory(partner=self.partner, condition=self.condition)
         basket = factories.BasketFactory(site=self.site, owner=factories.UserFactory())
         program = self.mock_program_detail_endpoint(
             self.condition.program_uuid, self.site_configuration.discovery_api_url, include_entitlements=False
@@ -263,6 +267,49 @@ class ProgramCourseRunSeatsConditionTests(ProgramTestMixin, TestCase):
                 if seat.attr.id_verification_required:
                     basket.add_product(seat)
 
-        with mock.patch('ecommerce.programs.conditions.traverse_pagination') as mock_processing_entitlements:
+        with mock.patch('ecommerce.programs.conditions.deprecated_traverse_pagination') as mock_processing_entitlements:
             self.assertFalse(self.condition.is_satisfied(offer, basket))
             mock_processing_entitlements.assert_not_called()
+
+    @httpretty.activate
+    def test_get_lms_resource_for_user_caching_none(self):
+        """
+        LMS resource should be properly cached when enrollments is None.
+        """
+        basket = factories.BasketFactory(site=self.site, owner=factories.UserFactory())
+        resource_name = 'test_resource_name'
+        mock_endpoint = mock.Mock()
+        mock_endpoint.get.return_value = None
+
+        return_value = self.condition._get_lms_resource_for_user(basket, resource_name, mock_endpoint)  # pylint: disable=protected-access
+
+        self.assertEqual(return_value, [])
+        self.assertEquals(mock_endpoint.get.call_count, 1, 'Endpoint should be called before caching.')
+
+        mock_endpoint.reset_mock()
+
+        return_value = self.condition._get_lms_resource_for_user(basket, resource_name, mock_endpoint)  # pylint: disable=protected-access
+
+        self.assertEqual(return_value, [])
+        self.assertEquals(mock_endpoint.get.call_count, 0, 'Endpoint should NOT be called after caching.')
+
+    @httpretty.activate
+    def test_is_satisfied_with_non_active_program(self):
+        """
+        Is satisfied should return false if program is not active.
+        """
+        offer = factories.ProgramOfferFactory(partner=self.partner, condition=self.condition)
+        basket = factories.BasketFactory(site=self.site, owner=factories.UserFactory())
+        program = self.mock_program_detail_endpoint(
+            self.condition.program_uuid,
+            self.site_configuration.discovery_api_url,
+            status="retired"
+        )
+        for course in program['courses']:
+            course_run = Course.objects.get(id=course['course_runs'][0]['key'])
+            for seat in course_run.seat_products:
+                if seat.attr.id_verification_required:
+                    basket.add_product(seat)
+                    break
+
+        self.assertFalse(self.condition.is_satisfied(offer, basket))

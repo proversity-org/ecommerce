@@ -3,11 +3,11 @@ import json
 import ddt
 import httpretty
 from django.conf import settings
-from django.core.urlresolvers import reverse
+from django.urls import reverse
+from edx_django_utils.cache import TieredCache
+from mock import patch
 from testfixtures import LogCapture
 
-from ecommerce.core.constants import ENROLLMENT_CODE_SWITCH
-from ecommerce.core.tests import toggle_switch
 from ecommerce.core.url_utils import get_lms_url
 from ecommerce.tests.testcases import TestCase
 
@@ -130,21 +130,25 @@ class CourseAppViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context['credit_providers'], provider_json)
 
-    @ddt.data(True, False)
     @httpretty.activate
-    def test_bulk_enrollment_code_flag_is_context(self, enabled):
-        """Verify the context data includes a bulk enrollment code flag."""
+    def test_credit_providers_in_context_cached(self):
+        """ Verify the cached context data includes a list of credit providers. """
         self._create_and_login_staff_user()
-        self.mock_credit_api_providers()
 
-        toggle_switch(ENROLLMENT_CODE_SWITCH, enabled)
-        site_config = self.site.siteconfiguration
-        site_config.enable_enrollment_codes = enabled
-        site_config.save()
+        __, provider_json = self.mock_credit_api_providers()
 
-        response = self.client.get(self.path)
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context['bulk_enrollment_codes_enabled'], enabled)
+        with patch.object(TieredCache, 'set_all_tiers', wraps=TieredCache.set_all_tiers) as mocked_set_all_tiers:
+            mocked_set_all_tiers.assert_not_called()
+
+            response = self.client.get(self.path)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.context['credit_providers'], provider_json)
+            self.assertEqual(mocked_set_all_tiers.call_count, 1)
+
+            response = self.client.get(self.path)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.context['credit_providers'], provider_json)
+            self.assertEqual(mocked_set_all_tiers.call_count, 1)
 
     @httpretty.activate
     def test_credit_api_failure(self):

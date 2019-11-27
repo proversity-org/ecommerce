@@ -7,9 +7,13 @@ from oscar.test.factories import ConditionalOfferFactory as BaseConditionalOffer
 from oscar.test.factories import VoucherFactory as BaseVoucherFactory
 from oscar.test.factories import *  # pylint:disable=wildcard-import,unused-wildcard-import
 
+from ecommerce.enterprise.benefits import BENEFIT_MAP as ENTERPRISE_BENEFIT_MAP
 from ecommerce.enterprise.benefits import EnterpriseAbsoluteDiscountBenefit, EnterprisePercentageDiscountBenefit
-from ecommerce.enterprise.conditions import EnterpriseCustomerCondition
-from ecommerce.extensions.offer.models import OFFER_PRIORITY_ENTERPRISE, OFFER_PRIORITY_VOUCHER
+from ecommerce.enterprise.conditions import AssignableEnterpriseCustomerCondition, EnterpriseCustomerCondition
+from ecommerce.extensions.offer.models import OFFER_PRIORITY_ENTERPRISE, OFFER_PRIORITY_VOUCHER, OfferAssignment
+# TODO: journals dependency
+from ecommerce.journals.benefits import JournalBundleAbsoluteDiscountBenefit, JournalBundlePercentageDiscountBenefit
+from ecommerce.journals.conditions import JournalBundleCondition
 from ecommerce.programs.benefits import AbsoluteDiscountBenefitWithoutRange, PercentageDiscountBenefitWithoutRange
 from ecommerce.programs.conditions import ProgramCourseRunSeatsCondition
 from ecommerce.programs.custom import class_path
@@ -103,7 +107,7 @@ def prepare_voucher(code='COUPONTEST', _range=None, start_datetime=None, end_dat
         usage=usage
     )
     benefit = BenefitFactory(type=benefit_type, range=_range, value=benefit_value)
-    condition = ConditionFactory(value=1, range=_range)
+    condition = ConditionFactory(value=1, range=_range, enterprise_customer_uuid=enterprise_customer)
     if max_usage:
         offer = ConditionalOfferFactory(
             offer_type=ConditionalOffer.VOUCHER,
@@ -119,11 +123,50 @@ def prepare_voucher(code='COUPONTEST', _range=None, start_datetime=None, end_dat
             benefit=benefit,
             condition=condition,
             email_domains=email_domains,
-            site=site,
+            partner=site.siteconfiguration.partner if site else None,
             priority=OFFER_PRIORITY_VOUCHER
         )
     voucher.offers.add(offer)
     return voucher, product
+
+
+def prepare_enterprise_voucher(code='COUPONTEST', start_datetime=None, end_datetime=None, benefit_value=100,
+                               benefit_type=Benefit.PERCENTAGE, usage=Voucher.SINGLE_USE,
+                               enterprise_customer=None, enterprise_customer_catalog=None):
+    """ Helper function to create a voucher and add an enterprise conditional offer to it. """
+    if start_datetime is None:
+        start_datetime = now() - datetime.timedelta(days=1)
+
+    if end_datetime is None:
+        end_datetime = now() + datetime.timedelta(days=10)
+
+    voucher = VoucherFactory(
+        code=code,
+        start_datetime=start_datetime,
+        end_datetime=end_datetime,
+        usage=usage
+    )
+    benefit = BenefitFactory(
+        proxy_class=class_path(ENTERPRISE_BENEFIT_MAP[benefit_type]),
+        value=benefit_value,
+        type='',
+        range=None,
+    )
+    condition = ConditionFactory(
+        proxy_class=class_path(EnterpriseCustomerCondition),
+        enterprise_customer_uuid=enterprise_customer,
+        enterprise_customer_catalog_uuid=enterprise_customer_catalog,
+        range=None,
+    )
+    offer = ConditionalOfferFactory(
+        offer_type=ConditionalOffer.VOUCHER,
+        benefit=benefit,
+        condition=condition,
+        priority=OFFER_PRIORITY_VOUCHER
+    )
+
+    voucher.offers.add(offer)
+    return voucher
 
 
 class VoucherFactory(BaseVoucherFactory):  # pylint: disable=function-redefined
@@ -195,9 +238,63 @@ class EnterpriseCustomerConditionFactory(ConditionFactory):
         model = EnterpriseCustomerCondition
 
 
+class AssignableEnterpriseCustomerConditionFactory(ConditionFactory):
+    proxy_class = class_path(AssignableEnterpriseCustomerCondition)
+
+    class Meta(object):
+        model = AssignableEnterpriseCustomerCondition
+
+
 class EnterpriseOfferFactory(ConditionalOfferFactory):
     benefit = factory.SubFactory(EnterprisePercentageDiscountBenefitFactory)
     condition = factory.SubFactory(EnterpriseCustomerConditionFactory)
+    max_basket_applications = 1
+    offer_type = ConditionalOffer.SITE
+    priority = OFFER_PRIORITY_ENTERPRISE
+    status = ConditionalOffer.OPEN
+
+
+class OfferAssignmentFactory(factory.DjangoModelFactory):
+    offer = factory.SubFactory(EnterpriseOfferFactory)
+    code = factory.Sequence(lambda n: 'VOUCHERCODE{number}'.format(number=n))
+    user_email = factory.Sequence(lambda n: 'example_%s@example.com' % n)
+
+    class Meta(object):
+        model = OfferAssignment
+
+
+# TODO: journals dependency
+class JournalAbsoluteDiscountBenefitFactory(BenefitFactory):
+    range = None
+    type = ''
+    value = 10
+    proxy_class = class_path(JournalBundleAbsoluteDiscountBenefit)
+
+
+# TODO: journals dependency
+class JournalPercentageDiscountBenefitFactory(BenefitFactory):
+    range = None
+    type = ''
+    value = 10
+    proxy_class = class_path(JournalBundlePercentageDiscountBenefit)
+
+
+# TODO: journals dependency
+class JournalConditionFactory(ConditionFactory):
+    range = None
+    type = ''
+    value = None
+    journal_bundle_uuid = factory.LazyFunction(uuid.uuid4)
+    proxy_class = class_path(JournalBundleCondition)
+
+    class Meta(object):
+        model = JournalBundleCondition
+
+
+# TODO: journals dependency
+class JournalBundleOfferFactory(ConditionalOfferFactory):
+    benefit = factory.SubFactory(JournalPercentageDiscountBenefitFactory)
+    condition = factory.SubFactory(JournalConditionFactory)
     max_basket_applications = 1
     offer_type = ConditionalOffer.SITE
     priority = OFFER_PRIORITY_ENTERPRISE

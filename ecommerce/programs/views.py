@@ -1,7 +1,7 @@
 import logging
 
 from django.contrib import messages
-from django.core.urlresolvers import reverse
+from django.urls import reverse
 from django.utils.translation import ugettext_lazy as _
 from django.views.generic import CreateView, ListView, UpdateView
 from oscar.core.loading import get_model
@@ -25,7 +25,7 @@ class ProgramOfferViewMixin(StaffOnlyMixin):
 
     def get_queryset(self):
         return super(ProgramOfferViewMixin, self).get_queryset().filter(
-            site=self.request.site.id,
+            partner=self.request.site.siteconfiguration.partner,
             condition__program_uuid__isnull=False,
             offer_type=ConditionalOffer.SITE
         )

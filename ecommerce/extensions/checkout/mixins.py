@@ -10,14 +10,23 @@ from ecommerce_worker.fulfillment.v1.tasks import fulfill_order
 from oscar.apps.checkout.mixins import OrderPlacementMixin
 from oscar.core.loading import get_class, get_model
 
+from ecommerce.core.models import BusinessClient
 from ecommerce.extensions.analytics.utils import audit_log, track_segment_event
 from ecommerce.extensions.api import data as data_api
+from ecommerce.extensions.basket.constants import EMAIL_OPT_IN_ATTRIBUTE
+from ecommerce.extensions.basket.utils import ORGANIZATION_ATTRIBUTE_TYPE
 from ecommerce.extensions.checkout.exceptions import BasketNotFreeError
 from ecommerce.extensions.customer.utils import Dispatcher
+from ecommerce.extensions.offer.constants import OFFER_ASSIGNMENT_REVOKED, OFFER_REDEEMED
 from ecommerce.extensions.order.constants import PaymentEventTypeName
+from ecommerce.invoice.models import Invoice
 
 CommunicationEventType = get_model('customer', 'CommunicationEventType')
 logger = logging.getLogger(__name__)
+Basket = get_model('basket', 'Basket')
+BasketAttribute = get_model('basket', 'BasketAttribute')
+BasketAttributeType = get_model('basket', 'BasketAttributeType')
+OfferAssignment = get_model('offer', 'OfferAssignment')
 Order = get_model('order', 'Order')
 post_checkout = get_class('checkout.signals', 'post_checkout')
 PaymentEvent = get_model('order', 'PaymentEvent')
@@ -32,7 +41,10 @@ class EdxOrderPlacementMixin(OrderPlacementMixin):
     # Instance of a payment processor with which to handle payment. Subclasses should set this value.
     payment_processor = None
 
-    order_placement_failure_msg = 'Payment was received, but an order for basket [%d] could not be placed.'
+    duplicate_order_attempt_msg = 'Duplicate Order Attempt: %s payment was received, but an order with number [%s] ' \
+                                  'already exists. Basket id: [%d].'
+    order_placement_failure_msg = 'Order Failure: %s payment was received, but an order for basket [%d] ' \
+                                  'could not be placed.'
 
     __metaclass__ = abc.ABCMeta
 
@@ -126,6 +138,7 @@ class EdxOrderPlacementMixin(OrderPlacementMixin):
                 shipping_charge=shipping_charge,
                 order_total=order_total,
                 billing_address=billing_address,
+                request=request,
                 **kwargs
             )
 
@@ -145,14 +158,30 @@ class EdxOrderPlacementMixin(OrderPlacementMixin):
             contains_coupon=order.contains_coupon
         )
 
+        # Check for the user's email opt in preference, defaulting to false if it hasn't been set
+        try:
+            email_opt_in = BasketAttribute.objects.get(
+                basket=order.basket,
+                attribute_type=BasketAttributeType.objects.get(name=EMAIL_OPT_IN_ATTRIBUTE),
+            ).value_text == 'True'
+        except BasketAttribute.DoesNotExist:
+            email_opt_in = False
+
+        # update offer assignment with voucher application
+        self.update_assigned_voucher_offer_assignment(order)
+
         if waffle.sample_is_active('async_order_fulfillment'):
             # Always commit transactions before sending tasks depending on state from the current transaction!
             # There's potential for a race condition here if the task starts executing before the active
             # transaction has been committed; the necessary order doesn't exist in the database yet.
             # See http://celery.readthedocs.org/en/latest/userguide/tasks.html#database-transactions.
-            fulfill_order.delay(order.number, site_code=order.site.siteconfiguration.partner.short_code)
+            fulfill_order.delay(
+                order.number,
+                site_code=order.site.siteconfiguration.partner.short_code,
+                email_opt_in=email_opt_in
+            )
         else:
-            post_checkout.send(sender=self, order=order, request=request)
+            post_checkout.send(sender=self, order=order, request=request, email_opt_in=email_opt_in)
 
         return order
 
@@ -219,3 +248,66 @@ class EdxOrderPlacementMixin(OrderPlacementMixin):
         else:
             logger.warning("Order #%s - no %s communication event type",
                            order.number, code)
+
+    def handle_post_order(self, order):
+        """
+        Handle extra processing of order after its placed.
+
+        This method links the provided order with the BusinessClient for bulk
+        purchase through Invoice model.
+
+        Arguments:
+            order (Order): Order object
+
+        """
+        basket_has_enrollment_code_product = any(
+            line.product.is_enrollment_code_product for line in order.basket.all_lines()
+        )
+
+        organization_attribute = BasketAttributeType.objects.filter(name=ORGANIZATION_ATTRIBUTE_TYPE).first()
+        if not organization_attribute:
+            return None
+
+        business_client = BasketAttribute.objects.filter(
+            basket=order.basket,
+            attribute_type=organization_attribute,
+        ).first()
+        if basket_has_enrollment_code_product and business_client:
+            client, __ = BusinessClient.objects.get_or_create(name=business_client.value_text)
+            Invoice.objects.create(
+                order=order, business_client=client, type=Invoice.BULK_PURCHASE, state=Invoice.PAID
+            )
+
+    def log_order_placement_exception(self, order_number, basket_id):
+        payment_processor = self.payment_processor.NAME.title() if self.payment_processor else None
+        if Order.objects.filter(number=order_number).exists():
+            # One cause of this is Cybersource sending us duplicate notifications for a single payment.
+            # See Jira ticket EG-15
+            logger.exception(
+                self.duplicate_order_attempt_msg, payment_processor, order_number, basket_id
+            )
+        else:
+            logger.exception(self.order_placement_failure_msg, payment_processor, basket_id)
+
+    def update_assigned_voucher_offer_assignment(self, order):
+        """
+        Update `OfferAssignment` when an assigned voucher is redeeemed.
+        """
+        basket = order.basket
+        voucher = basket.vouchers.first()
+        offer = voucher and voucher.enterprise_offer
+        # can't entertain non enterprise offers
+        if not offer:
+            return None
+
+        assignment = offer.offerassignment_set.filter(code=voucher.code, user_email=basket.owner.email).exclude(
+            status__in=[OFFER_REDEEMED, OFFER_ASSIGNMENT_REVOKED]
+        ).first()
+
+        if assignment:
+            assignment.voucher_application = voucher.applications.filter(
+                user=basket.owner,
+                order=order
+            ).order_by('-date_created').first()
+            assignment.status = OFFER_REDEEMED
+            assignment.save()

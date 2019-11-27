@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import datetime
 import urllib
 
@@ -6,11 +7,11 @@ import httpretty
 import mock
 import pytz
 from django.conf import settings
-from django.core.urlresolvers import reverse
+from django.urls import reverse
 from django.utils.timezone import now
 from factory.fuzzy import FuzzyText
 from oscar.core.loading import get_class, get_model
-from oscar.test.factories import OrderFactory, OrderLineFactory, RangeFactory, VoucherFactory
+from oscar.test.factories import OrderFactory, OrderLineFactory, ProductFactory, RangeFactory, VoucherFactory
 
 from ecommerce.core.url_utils import get_lms_url
 from ecommerce.coupons.tests.mixins import CouponMixin, DiscoveryMockMixin
@@ -28,7 +29,7 @@ from ecommerce.extensions.test.factories import prepare_voucher
 from ecommerce.tests.mixins import ApiMockMixin, LmsApiMockMixin
 from ecommerce.tests.testcases import TestCase
 
-Applicator = get_class('offer.utils', 'Applicator')
+Applicator = get_class('offer.applicator', 'Applicator')
 Basket = get_model('basket', 'Basket')
 Benefit = get_model('offer', 'Benefit')
 Catalog = get_model('catalogue', 'Catalog')
@@ -419,7 +420,7 @@ class CouponRedeemViewTests(CouponMixin, DiscoveryTestMixin, LmsApiMockMixin, En
 
     @httpretty.activate
     def test_basket_redirect_discount_code(self):
-        """ Verify the view redirects to the basket single-item view when a discount code is provided. """
+        """ Verify the view redirects to the basket view when a discount code is provided. """
         self.mock_course_api_response(course=self.course)
         self.mock_account_api(self.request, self.user.username, data={'is_active': True})
         self.mock_access_token_response()
@@ -638,7 +639,7 @@ class CouponRedeemViewTests(CouponMixin, DiscoveryTestMixin, LmsApiMockMixin, En
     @httpretty.activate
     def test_active_user_requirement_disabled(self):
         """
-        Verify that a user who hasn't activated their account is redirected to the basket single-item view
+        Verify that a user who hasn't activated their account is redirected to the basket view
         when the account activation requirement has been disabled.
         """
         self.site.siteconfiguration.require_account_activation = False
@@ -667,6 +668,7 @@ class CouponRedeemViewTests(CouponMixin, DiscoveryTestMixin, LmsApiMockMixin, En
         self.assertEqual(response.context['user_email'], self.user.email)
 
 
+@ddt.ddt
 class EnrollmentCodeCsvViewTests(TestCase):
     """ Tests for the EnrollmentCodeCsvView view. """
     path = 'coupons:enrollment_code_csv'
@@ -690,11 +692,16 @@ class EnrollmentCodeCsvViewTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response['location'], get_lms_url('dashboard'))
 
-    def test_successful_response(self):
+    @ddt.data(
+        u'Plain English product title',
+        u'Unicode product títle 可以用“我不太懂艺术 但我知道我喜欢什么”做比喻'
+    )
+    def test_successful_response(self, product_title):
         """ Verify a successful response is returned. """
         voucher = VoucherFactory()
         order = OrderFactory(user=self.user)
-        line = OrderLineFactory(order=order)
+        product = ProductFactory(title=product_title, categories=[])
+        line = OrderLineFactory(order=order, product=product)
         order_line_vouchers = OrderLineVouchers.objects.create(line=line)
         order_line_vouchers.vouchers.add(voucher)
 

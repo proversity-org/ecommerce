@@ -1,14 +1,14 @@
 from __future__ import unicode_literals
 
-import csv
 import logging
 
+import unicodecsv as csv
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
-from django.core.urlresolvers import reverse
 from django.http import Http404, HttpResponse, HttpResponseRedirect
 from django.shortcuts import render
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.utils.text import slugify
@@ -37,7 +37,7 @@ from ecommerce.extensions.offer.utils import render_email_confirmation_if_requir
 from ecommerce.extensions.order.exceptions import AlreadyPlacedOrderException
 from ecommerce.extensions.voucher.utils import get_voucher_and_products_from_code
 
-Applicator = get_class('offer.utils', 'Applicator')
+Applicator = get_class('offer.applicator', 'Applicator')
 Basket = get_model('basket', 'Basket')
 Benefit = get_model('offer', 'Benefit')
 ConditionalOffer = get_model('offer', 'ConditionalOffer')
@@ -87,7 +87,7 @@ def voucher_is_valid(voucher, products, request):
             return False, _('Product [{product}] not available for purchase.'.format(product=products[0]))
 
     # If the voucher's number of applications exceeds it's limit.
-    offer = voucher.offers.first()
+    offer = voucher.best_offer
     if offer.get_max_applications(request.user) == 0:
         return False, _('This coupon code is no longer available.')
 
@@ -176,7 +176,7 @@ class CouponRedeemView(EdxOrderPlacementMixin, View):
         if not valid_voucher:
             return render(request, template_name, {'error': msg})
 
-        offer = voucher.offers.first()
+        offer = voucher.best_offer
         if not offer.is_email_valid(request.user.email):
             return render(request, template_name, {'error': _('You are not eligible to use this coupon.')})
 
@@ -310,7 +310,7 @@ class EnrollmentCodeCsvView(View):
         response['Content-Disposition'] = 'attachment; filename={filename}'.format(filename=file_name)
 
         redeem_url = get_ecommerce_url(reverse('coupons:offer'))
-        voucher_field_names = ('Code', 'Redemption URL')
+        voucher_field_names = ('Code', 'Redemption URL', 'Name Of Employee', 'Date Of Distribution', 'Employee Email')
         voucher_writer = csv.DictWriter(response, fieldnames=voucher_field_names)
 
         writer = csv.writer(response)

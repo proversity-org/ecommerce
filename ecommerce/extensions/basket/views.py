@@ -6,20 +6,21 @@ from decimal import Decimal
 from urllib import urlencode
 
 import dateutil.parser
+import newrelic.agent
 import waffle
 from django.http import HttpResponseBadRequest, HttpResponseRedirect
 from django.shortcuts import redirect, render
+from django.utils.html import escape
 from django.utils.translation import ugettext as _
 from opaque_keys.edx.keys import CourseKey
 from oscar.apps.basket.views import VoucherAddView as BaseVoucherAddView
 from oscar.apps.basket.views import VoucherRemoveView as BaseVoucherRemoveView
 from oscar.apps.basket.views import *  # pylint: disable=wildcard-import, unused-wildcard-import
-from oscar.core.decorators import deprecated
 from requests.exceptions import ConnectionError, Timeout
 from slumber.exceptions import SlumberBaseException
 
 from ecommerce.core.exceptions import SiteConfigurationError
-from ecommerce.core.url_utils import get_lms_url
+from ecommerce.core.url_utils import get_lms_course_about_url, get_lms_url
 from ecommerce.courses.utils import get_certificate_type_display_value, get_course_info_from_catalog
 from ecommerce.enterprise.entitlements import get_enterprise_code_redemption_redirect
 from ecommerce.enterprise.utils import CONSENT_FAILED_PARAM, get_enterprise_customer_from_voucher, has_enterprise_offer
@@ -28,13 +29,22 @@ from ecommerce.extensions.analytics.utils import (
     track_segment_event,
     translate_basket_line_for_segment
 )
-from ecommerce.extensions.basket.utils import add_utm_params_to_url, get_basket_switch_data, prepare_basket
+from ecommerce.extensions.basket.constants import EMAIL_OPT_IN_ATTRIBUTE
+from ecommerce.extensions.basket.utils import (
+    add_utm_params_to_url,
+    apply_voucher_on_basket_and_check_discount,
+    get_basket_switch_data,
+    prepare_basket,
+    validate_voucher
+)
 from ecommerce.extensions.offer.utils import format_benefit_value, render_email_confirmation_if_required
 from ecommerce.extensions.order.exceptions import AlreadyPlacedOrderException
 from ecommerce.extensions.partner.shortcuts import get_partner_for_site
 from ecommerce.extensions.payment.constants import CLIENT_SIDE_CHECKOUT_FLAG_NAME
 from ecommerce.extensions.payment.forms import PaymentForm
 
+BasketAttribute = get_model('basket', 'BasketAttribute')
+BasketAttributeType = get_model('basket', 'BasketAttributeType')
 Benefit = get_model('offer', 'Benefit')
 logger = logging.getLogger(__name__)
 Product = get_model('catalogue', 'Product')
@@ -42,62 +52,7 @@ StockRecord = get_model('partner', 'StockRecord')
 Voucher = get_model('voucher', 'Voucher')
 
 
-@deprecated
-class BasketSingleItemView(View):
-    """
-    View that adds a single product to a user's basket.
-    An additional coupon code can be supplied so the offer is applied to the basket.
-    """
-
-    def get(self, request):
-        partner = get_partner_for_site(request)
-
-        sku = request.GET.get('sku', None)
-        code = request.GET.get('code', None)
-
-        if not sku:
-            return HttpResponseBadRequest(_('No SKU provided.'))
-
-        voucher = Voucher.objects.get(code=code) if code else None
-
-        try:
-            product = StockRecord.objects.get(partner=partner, partner_sku=sku).product
-        except StockRecord.DoesNotExist:
-            return HttpResponseBadRequest(_('SKU [{sku}] does not exist.').format(sku=sku))
-
-        logger.info('Starting payment flow for user[%s] for product[%s].', request.user.username, sku)
-
-        if voucher is None:
-            # If there is an Enterprise entitlement available for this basket,
-            # we redirect to the CouponRedeemView to apply the discount to the
-            # basket and handle the data sharing consent requirement.
-            code_redemption_redirect = get_enterprise_code_redemption_redirect(
-                request,
-                [product],
-                [sku],
-                'basket:single-item'
-            )
-            if code_redemption_redirect:
-                return code_redemption_redirect
-
-        # If the product isn't available then there's no reason to continue with the basket addition
-        purchase_info = request.strategy.fetch_for_product(product)
-        if not purchase_info.availability.is_available_to_buy:
-            msg = _('Product [{product}] not available to buy.').format(product=product.title)
-            return HttpResponseBadRequest(msg)
-
-        # At this point we're either adding an Enrollment Code product to the basket,
-        # or the user is adding a Seat product for which they are not already enrolled
-        try:
-            prepare_basket(request, [product], voucher)
-        except AlreadyPlacedOrderException:
-            msg = _('You have already purchased {course} seat.').format(course=product.title)
-            return render(request, 'edx/error.html', {'error': msg})
-        url = add_utm_params_to_url(reverse('basket:summary'), self.request.GET.items())
-        return HttpResponseRedirect(url, status=303)
-
-
-class BasketMultipleItemsView(View):
+class BasketAddItemsView(View):
     """
     View that adds multiple products to a user's basket.
     An additional coupon code can be supplied so the offer is applied to the basket.
@@ -106,7 +61,7 @@ class BasketMultipleItemsView(View):
     def get(self, request):
         partner = get_partner_for_site(request)
 
-        skus = request.GET.getlist('sku')
+        skus = [escape(sku) for sku in request.GET.getlist('sku')]
         code = request.GET.get('code', None)
 
         if not skus:
@@ -128,13 +83,34 @@ class BasketMultipleItemsView(View):
                 request,
                 products,
                 skus,
-                'basket:add-multi'
+                'basket:basket-add'
             )
             if code_redemption_redirect:
                 return code_redemption_redirect
 
+        # check availability of products
+        unavailable_product_ids = []
+        for product in products:
+            purchase_info = request.strategy.fetch_for_product(product)
+            if not purchase_info.availability.is_available_to_buy:
+                logger.warning('Product [%s] is not available to buy.', product.title)
+                unavailable_product_ids.append(product.id)
+
+        available_products = products.exclude(id__in=unavailable_product_ids)
+        if not available_products:
+            msg = _('No product is available to buy.')
+            return HttpResponseBadRequest(msg)
+
+        # Associate the user's email opt in preferences with the basket in
+        # order to opt them in later as part of fulfillment
+        BasketAttribute.objects.update_or_create(
+            basket=request.basket,
+            attribute_type=BasketAttributeType.objects.get(name=EMAIL_OPT_IN_ATTRIBUTE),
+            defaults={'value_text': request.GET.get('email_opt_in') == 'true'},
+        )
+
         try:
-            prepare_basket(request, products, voucher)
+            prepare_basket(request, available_products, voucher)
         except AlreadyPlacedOrderException:
             return render(request, 'edx/error.html', {'error': _('You have already purchased these products')})
         url = add_utm_params_to_url(reverse('basket:summary'), self.request.GET.items())
@@ -146,6 +122,7 @@ class BasketSummaryView(BasketView):
     Display basket contents and checkout/payment options.
     """
 
+    @newrelic.agent.function_trace()
     def _determine_product_type(self, product):
         """
         Return the seat type based on the product class
@@ -157,14 +134,16 @@ class BasketSummaryView(BasketView):
             seat_type = get_certificate_type_display_value(product.attr.seat_type)
         return seat_type
 
+    @newrelic.agent.function_trace()
     def _deserialize_date(self, date_string):
         date = None
         try:
             date = dateutil.parser.parse(date_string)
-        except (AttributeError, ValueError):
+        except (AttributeError, ValueError, TypeError):
             pass
         return date
 
+    @newrelic.agent.function_trace()
     def _get_course_data(self, product):
         """
         Return course data.
@@ -183,6 +162,7 @@ class BasketSummaryView(BasketView):
         short_description = None
         course_start = None
         course_end = None
+        course = None
 
         try:
             course = get_course_info_from_catalog(self.request.site, product)
@@ -202,6 +182,29 @@ class BasketSummaryView(BasketView):
         except (ConnectionError, SlumberBaseException, Timeout):
             logger.exception('Failed to retrieve data from Discovery Service for course [%s].', course_key)
 
+        if self.request.basket.num_items == 1 and product.is_enrollment_code_product:
+            course_key = CourseKey.from_string(product.attr.course_key)
+            if course and course.get('marketing_url', None):
+                course_about_url = course['marketing_url']
+            else:
+                course_about_url = get_lms_course_about_url(course_key=course_key)
+            messages.info(
+                self.request,
+                _(
+                    '{strong_start}Purchasing just for yourself?{strong_end}{paragraph_start}If you are '
+                    'purchasing a single code for someone else, please continue with checkout. However, if you are the '
+                    'learner {link_start}go back{link_end} to enroll directly.{paragraph_end}'
+                ).format(
+                    strong_start='<strong>',
+                    strong_end='</strong>',
+                    paragraph_start='<p>',
+                    paragraph_end='</p>',
+                    link_start='<a href="{course_about}">'.format(course_about=course_about_url),
+                    link_end='</a>'
+                ),
+                extra_tags='safe'
+            )
+
         return {
             'product_title': course_name,
             'course_key': course_key,
@@ -211,6 +214,7 @@ class BasketSummaryView(BasketView):
             'course_end': course_end,
         }
 
+    @newrelic.agent.function_trace()
     def _process_basket_lines(self, lines):
         """Processes the basket lines and extracts information for the view's context.
         In addition determines whether:
@@ -229,6 +233,7 @@ class BasketSummaryView(BasketView):
         display_verification_message = False
         lines_data = []
         show_voucher_form = True
+        is_enrollment_code_purchase = False
         switch_link_text = partner_sku = order_details_msg = None
 
         for line in lines:
@@ -257,10 +262,29 @@ class BasketSummaryView(BasketView):
                         )
             elif line.product.is_enrollment_code_product:
                 line_data = self._get_course_data(line.product)
+                is_enrollment_code_purchase = True
                 show_voucher_form = False
                 order_details_msg = _(
-                    'You will receive an email at {user_email} with your enrollment code(s).'
-                ).format(user_email=self.request.user.email)
+                    '{paragraph_start}By purchasing, you and your organization agree to the following terms:'
+                    '{paragraph_end} {ul_start} {li_start}Each code is valid for the one course covered and can be '
+                    'used only one time.{li_end} '
+                    '{li_start}You are responsible for distributing codes to your learners in your organization.'
+                    '{li_end} {li_start}Each code will expire in one year from date of purchase or, if earlier, once '
+                    'the course is closed.{li_end} {li_start}If a course is not designated as self-paced, you should '
+                    'confirm that a course run is available before expiration. {li_end} {li_start}You may not resell '
+                    'codes to third parties.{li_end} '
+                    '{li_start}All edX for Business Sales are final and not eligible for refunds.{li_end}{ul_end} '
+                    '{paragraph_start}You will receive an email at {user_email} with your enrollment code(s). '
+                    '{paragraph_end}'
+                ).format(
+                    paragraph_start='<p>',
+                    paragraph_end='</p>',
+                    ul_start='<ul>',
+                    li_start='<li>',
+                    li_end='</li>',
+                    ul_end='</ul>',
+                    user_email=self.request.user.email
+                )
             else:
                 line_data = {
                     'product_title': line.product.title,
@@ -268,10 +292,8 @@ class BasketSummaryView(BasketView):
                     'product_description': line.product.description
                 }
 
-            # TODO: handle these links for multi-line baskets.
-            if self.request.site.siteconfiguration.enable_enrollment_codes:
-                # Get variables for the switch link that toggles from enrollment codes and seat.
-                switch_link_text, partner_sku = get_basket_switch_data(line.product)
+            # Get variables for the switch link that toggles from enrollment codes and seat.
+            switch_link_text, partner_sku = get_basket_switch_data(line.product)
 
             if line.has_discount:
                 benefit = self.request.basket.applied_offers().values()[0].benefit
@@ -293,11 +315,13 @@ class BasketSummaryView(BasketView):
             'order_details_msg': order_details_msg,
             'partner_sku': partner_sku,
             'show_voucher_form': show_voucher_form,
-            'switch_link_text': switch_link_text
+            'switch_link_text': switch_link_text,
+            'is_enrollment_code_purchase': is_enrollment_code_purchase
         }
 
         return context_updates, lines_data
 
+    @newrelic.agent.function_trace()
     def _get_payment_processors_data(self, payment_processors):
         """Retrieve information about payment processors for the client side checkout basket.
 
@@ -334,6 +358,7 @@ class BasketSummaryView(BasketView):
                                                      sc=site_configuration.id)
             raise SiteConfigurationError(msg)
 
+    @newrelic.agent.function_trace()
     def get(self, request, *args, **kwargs):
         basket = request.basket
 
@@ -357,6 +382,7 @@ class BasketSummaryView(BasketView):
         else:
             return super(BasketSummaryView, self).get(request, *args, **kwargs)
 
+    @newrelic.agent.function_trace()
     def get_context_data(self, **kwargs):
         context = super(BasketSummaryView, self).get_context_data(**kwargs)
         formset = context.get('formset', [])
@@ -396,98 +422,45 @@ class BasketSummaryView(BasketView):
         try:
             applied_voucher = self.request.basket.vouchers.first()
             total_benefit = (
-                format_benefit_value(applied_voucher.offers.first().benefit)
+                format_benefit_value(applied_voucher.best_offer.benefit)
                 if applied_voucher else None
             )
         except ValueError:
             total_benefit = None
-
+        num_of_items = self.request.basket.num_items
         context.update({
             'formset_lines_data': zip(formset, lines_data),
             'free_basket': context['order_total'].incl_tax == 0,
             'homepage_url': get_lms_url(''),
             'min_seat_quantity': 1,
+            'max_seat_quantity': 100,
             'payment_processors': payment_processors,
-            'total_benefit': total_benefit
+            'total_benefit': total_benefit,
+            'line_price': (self.request.basket.total_incl_tax_excl_discounts / num_of_items) if num_of_items > 0 else 0
         })
         return context
 
 
 class VoucherAddView(BaseVoucherAddView):  # pylint: disable=function-redefined
     def apply_voucher_to_basket(self, voucher):
-        code = voucher.code
-        if voucher.is_expired():
-            messages.error(
-                self.request,
-                _("Coupon code '{code}' has expired.").format(code=code)
-            )
-            return
+        """
+        Validates and applies voucher on basket.
+        """
+        self.request.basket.clear_vouchers()
 
-        if not voucher.is_active():
-            messages.error(
-                self.request,
-                _("Coupon code '{code}' is not active.").format(code=code))
-            return
-
-        is_available, message = voucher.is_available_to_user(self.request.user)
-
-        if not is_available:
-            if voucher.usage == Voucher.SINGLE_USE:
-                message = _("Coupon code '{code}' has already been redeemed.").format(code=code)
+        is_valid, message = validate_voucher(voucher, self.request.user, self.request.basket, self.request.site)
+        if not is_valid:
             messages.error(self.request, message)
+            self.request.basket.vouchers.remove(voucher)
             return
 
-        # Do not allow coupons for one site to be used on another site
-        request_site = self.request.site
-        voucher_site = voucher.offers.first().site
-        if request_site and voucher_site and request_site != voucher_site:
-            messages.error(
-                self.request,
-                _("Coupon code '{code}' is not valid for this basket.").format(code=code))
-            return
+        valid, msg = apply_voucher_on_basket_and_check_discount(voucher, self.request, self.request.basket)
 
-        # Do not allow single course run coupons used on bundles.
-        BUNDLE = 'bundle_identifier'
-        BasketAttribute = get_model('basket', 'BasketAttribute')
-        BasketAttributeType = get_model('basket', 'BasketAttributeType')
-        bundle_attribute = BasketAttribute.objects.filter(
-            basket=self.request.basket,
-            attribute_type=BasketAttributeType.objects.get(name=BUNDLE)
-        )
-        if len(bundle_attribute) > 0 and not voucher.offers.first().condition.program_uuid:
-            messages.error(
-                self.request,
-                _("Coupon code '{code}' is not valid for this basket.").format(code=code))
-            return
-
-        # Reset any site offers that are applied so that only one offer is active.
-        self.request.basket.reset_offer_applications()
-        self.request.basket.vouchers.add(voucher)
-
-        # Raise signal
-        self.add_signal.send(sender=self, basket=self.request.basket, voucher=voucher)
-
-        # Recalculate discounts to see if the voucher gives any
-        Applicator().apply(self.request.basket, self.request.user,
-                           self.request)
-        discounts_after = self.request.basket.offer_applications
-
-        # Look for discounts from this new voucher
-        found_discount = False
-        for discount in discounts_after:
-            if discount['voucher'] and discount['voucher'] == voucher:
-                found_discount = True
-                break
-        if not found_discount:
-            messages.warning(
-                self.request,
-                _('Your basket does not qualify for a coupon code discount.'))
+        if not valid:
+            messages.warning(self.request, msg)
             self.request.basket.vouchers.remove(voucher)
         else:
-            messages.info(
-                self.request,
-                _("Coupon code '{code}' added to basket.").format(code=code)
-            )
+            messages.info(self.request, msg)
 
     def form_valid(self, form):
         code = form.cleaned_data['code']
@@ -513,7 +486,7 @@ class VoucherAddView(BaseVoucherAddView):  # pylint: disable=function-redefined
                 # specifically with the code that was submitted.
                 stock_record = basket_lines[0].stockrecord
 
-                offer = voucher.offers.first()
+                offer = voucher.best_offer
                 product = stock_record.product
                 email_confirmation_response = render_email_confirmation_if_required(self.request, offer, product)
                 if email_confirmation_response:

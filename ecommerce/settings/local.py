@@ -3,6 +3,8 @@ from __future__ import absolute_import
 
 from urlparse import urljoin
 
+from corsheaders.defaults import default_headers as corsheaders_default_headers
+
 from ecommerce.settings.base import *
 
 # DEBUG CONFIGURATION
@@ -49,12 +51,40 @@ SOCIAL_AUTH_REDIRECT_IS_HTTPS = False
 
 JWT_AUTH.update({
     'JWT_SECRET_KEY': 'insecure-secret-key',
-    'JWT_ISSUERS': (
-        'http://127.0.0.1:8000/oauth2',
-        # Must match the value of JWT_ISSUER configured for the ecommerce worker.
-        'ecommerce_worker',
+    'JWT_ISSUERS': [
+        {
+            'SECRET_KEY': 'lms-secret',
+            'AUDIENCE': 'lms-key',
+            'ISSUER': 'http://edx.devstack.lms:18000/oauth2'
+        },
+        {
+            # TODO: ARCH-276: Remove this second issuer once we are no longer
+            # using multiple issuers.
+            'SECRET_KEY': 'insecure-secret-key',
+            # NOTE: This value of AUDIENCE doesn't make sense, even for the
+            # LMS, but we are just making it match for now until AUDIENCE is
+            # potentially removed altogether.
+            'AUDIENCE': 'lms-key',
+            # Must match the value of JWT_ISSUER configured for the ecommerce worker.
+            'ISSUER': 'ecommerce_worker'
+        },
+    ],
+    'JWT_PUBLIC_SIGNING_JWK_SET': (
+        '{"keys": [{"kid": "devstack_key", "e": "AQAB", "kty": "RSA", "n": "smKFSYowG6nNUAdeqH1jQQnH1PmIHphzBmwJ5vRf1vu'
+        '48BUI5VcVtUWIPqzRK_LDSlZYh9D0YFL0ZTxIrlb6Tn3Xz7pYvpIAeYuQv3_H5p8tbz7Fb8r63c1828wXPITVTv8f7oxx5W3lFFgpFAyYMmROC'
+        '4Ee9qG5T38LFe8_oAuFCEntimWxN9F3P-FJQy43TL7wG54WodgiM0EgzkeLr5K6cDnyckWjTuZbWI-4ffcTgTZsL_Kq1owa_J2ngEfxMCObnzG'
+        'y5ZLcTUomo4rZLjghVpq6KZxfS6I1Vz79ZsMVUWEdXOYePCKKsrQG20ogQEkmTf9FT_SouC6jPcHLXw"}]}'
     ),
 })
+
+CORS_ORIGIN_WHITELIST = (
+    'localhost:1991'
+)
+CORS_ALLOW_HEADERS = corsheaders_default_headers + (
+    'use-jwt-cookie',
+)
+CORS_ALLOW_CREDENTIALS = True
+
 # END AUTHENTICATION
 
 
@@ -72,7 +102,7 @@ PAYMENT_PROCESSOR_CONFIG = {
         # Only Silent Order POST is actually used.
         'cybersource': {
             'merchant_id': 'edx_org',
-            'transaction_key': '/yIJJejEGoNNcecTyxC9ZD0wR2ZjkkKuOaZnq2BGMGIGQIOKA1rBR009OuvKbPW4J1KLb15BMlaoiUXoj/8/Fp6dy33/aHAU0+yGKcEMxyYXQOBPKjuoChIlMRVkrtWZqP9shGxw1jwHNovmGrvd2ULRIn21Rsq6YnHie7lLLRhXyY2MjnFXfv75eH2rFwfi4hBPbVPvx/r8PwgFIh5otAzsgyIlBjaKJkzbNXd5qCOdNFSBcPcJps3YgVH0ASleI/SZp+Ckuyotd+EhzK0tOehPJAm3L03lkPNeFX9lcemuRkeV53V3nvobn3GaX0td4FAEe8CZBn+IpFC2PoK0tw==',
+            'transaction_key': '2iJRV1OoAiMxSsFRQfkmdeqYKzwV76R5AY7vs/zKCQf2Dy0gYsno6sEizavo9rz29kcq/s2F+nGP0DrNNwDXyAxI3FW77HY+0jAssnXwd8cW1Pt5aEBcQvnOQ4i9nbN2mr1XJ+MthRbNodz1FgLFuTiZenpjFq1DFmQwFi2u7V1ItQrmG19kvnpk1++mZ8Dx7s4GdN8jxdvesNGoKo7E05X6LZTHdUCP3rfq/1Nn4RDoPvxtv9UMe77yxtUF8LVJ8clAl4VyW+6uhmgfIWninfQiESR0HQ++cNJS1EXHjwNyuDEdEALKxAwgUu4DQpFbTD1bcRRm4VrnDr6MsA8NaA==',
             'soap_api_url': 'https://ics2wstest.ic3.com/commerce/1.x/transactionProcessor/CyberSourceTransaction_1.115.wsdl',
             'profile_id': '00D31C4B-4E8F-4E9F-A6B9-1DB8C7C86223',
             'access_key': '90a39534dc513e8a81222b158378dda1',
@@ -118,6 +148,10 @@ BROKER_URL = 'amqp://'
 
 
 ENABLE_AUTO_AUTH = True
+
+#SAILTHRU settings
+SAILTHRU_KEY = 'abc123'
+SAILTHRU_SECRET = 'top_secret'
 
 #####################################################################
 # Lastly, see if the developer has any local overrides.

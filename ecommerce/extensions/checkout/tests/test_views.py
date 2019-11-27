@@ -4,9 +4,9 @@ from decimal import Decimal
 import ddt
 import httpretty
 from django.conf import settings
-from django.core.urlresolvers import reverse
+from django.urls import reverse
 from oscar.core.loading import get_model
-from oscar.test import newfactories as factories
+from oscar.test import factories
 
 from ecommerce.core.url_utils import get_lms_courseware_url, get_lms_program_dashboard_url
 from ecommerce.coupons.tests.mixins import DiscoveryMockMixin
@@ -18,6 +18,7 @@ from ecommerce.extensions.refund.tests.mixins import RefundTestMixin
 from ecommerce.tests.mixins import LmsApiMockMixin
 from ecommerce.tests.testcases import TestCase
 
+Basket = get_model('basket', 'Basket')
 BasketAttribute = get_model('basket', 'BasketAttribute')
 BasketAttributeType = get_model('basket', 'BasketAttributeType')
 Order = get_model('order', 'Order')
@@ -36,7 +37,7 @@ class FreeCheckoutViewTests(EnterpriseServiceMockMixin, TestCase):
     def prepare_basket(self, price, bundle=False):
         """ Helper function that creates a basket and adds a product with set price to it. """
         basket = factories.BasketFactory(owner=self.user, site=self.site)
-        self.course_run.create_or_update_seat('verified', True, Decimal(price), self.partner)
+        self.course_run.create_or_update_seat('verified', True, Decimal(price))
         basket.add_product(self.course_run.seat_products[0])
         self.assertEqual(basket.lines.count(), 1)
         self.assertEqual(basket.total_incl_tax, Decimal(price))
@@ -210,7 +211,7 @@ class ReceiptResponseViewTests(DiscoveryMockMixin, LmsApiMockMixin, RefundTestMi
         self.client.login(username=user.username, password=self.password)
         return self._get_receipt_response(order.number)
 
-    def _create_order_for_receipt(self, user, credit=False):
+    def _create_order_for_receipt(self, user, credit=False, entitlement=False, id_verification_required=False):
         """
         Helper function for creating an order and mocking verification status API response.
 
@@ -227,7 +228,11 @@ class ReceiptResponseViewTests(DiscoveryMockMixin, LmsApiMockMixin, RefundTestMi
             status=200,
             is_verified=False
         )
-        return self.create_order(credit=credit)
+        return self.create_order(
+            credit=credit,
+            entitlement=entitlement,
+            id_verification_required=id_verification_required
+        )
 
     def test_login_required_get_request(self):
         """ The view should redirect to the login page if the user is not logged in. """
@@ -278,6 +283,35 @@ class ReceiptResponseViewTests(DiscoveryMockMixin, LmsApiMockMixin, RefundTestMi
             'payment_method': None,
             'display_credit_messaging': False,
             'verification_url': self.site.siteconfiguration.build_lms_url('verify_student/reverify'),
+        }
+
+        self.assertEqual(response.status_code, 200)
+        self.assertDictContainsSubset(context_data, response.context_data)
+
+    @httpretty.activate
+    def test_get_receipt_for_existing_entitlement_order(self):
+        """ Order owner should be able to see the Receipt Page."""
+
+        order = self._create_order_for_receipt(self.user, entitlement=True, id_verification_required=True)
+        response = self._get_receipt_response(order.number)
+        context_data = {
+            'payment_method': None,
+            'display_credit_messaging': False,
+            'verification_url': self.site.siteconfiguration.build_lms_url('verify_student/reverify'),
+        }
+
+        self.assertEqual(response.status_code, 200)
+        self.assertDictContainsSubset(context_data, response.context_data)
+
+    @httpretty.activate
+    def test_get_receipt_for_entitlement_order_no_id_required(self):
+        """ Order owner should be able to see the Receipt Page with no ID verification in context."""
+
+        order = self._create_order_for_receipt(self.user, entitlement=True, id_verification_required=False)
+        response = self._get_receipt_response(order.number)
+        context_data = {
+            'payment_method': None,
+            'display_credit_messaging': False,
         }
 
         self.assertEqual(response.status_code, 200)
@@ -372,3 +406,10 @@ class ReceiptResponseViewTests(DiscoveryMockMixin, LmsApiMockMixin, RefundTestMi
 
         self.assertEqual(response.status_code, 200)
         self.assertDictContainsSubset(context_data, response.context_data)
+
+    @httpretty.activate
+    def test_order_without_basket(self):
+        order = self.create_order()
+        Basket.objects.filter(id=order.basket.id).delete()
+        response = self._get_receipt_response(order.number)
+        self.assertEqual(response.status_code, 200)

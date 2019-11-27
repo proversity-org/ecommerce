@@ -53,7 +53,7 @@ class Command(BaseCommand):
         course_ids = map(unicode, self.options.get('course_ids', []))
 
         self.partner = Partner.objects.get(code__iexact=options['partner'])  # pylint: disable=attribute-defined-outside-init
-        site = self.partner.siteconfiguration.site
+        site = self.partner.default_site
         self._install_current_request(site)
 
         if options.get('direction') == HONOR_TO_AUDIT:
@@ -64,7 +64,7 @@ class Command(BaseCommand):
         for course_id in course_ids:
             try:
                 with transaction.atomic():
-                    course = Course.objects.get(id=course_id, site=site)
+                    course = Course.objects.get(id=course_id, partner=self.partner)
                     conversion(course)
                     if self.options.get('commit', False):
                         course.publish_to_lms()

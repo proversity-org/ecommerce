@@ -1,6 +1,6 @@
 from django.conf import settings
-from django.core.cache import cache
-from django.core.urlresolvers import reverse
+from django.urls import reverse
+from edx_django_utils.cache import TieredCache
 from waffle.models import Switch
 
 from ecommerce.extensions.api.v2.views.payments import PAYMENT_PROCESSOR_CACHE_KEY
@@ -16,8 +16,8 @@ class SignalTests(TestCase):
         # Make a call that triggers cache creation
         response = self.client.get(reverse('api:v2:payment:list_processors'))
         self.assertEqual(response.status_code, 200)
-        self.assertIsNotNone(cache.get(PAYMENT_PROCESSOR_CACHE_KEY))
+        self.assertTrue(TieredCache.get_cached_response(PAYMENT_PROCESSOR_CACHE_KEY).is_found)
 
         # Toggle a switch to trigger cache deletion
         Switch.objects.get_or_create(name=settings.PAYMENT_PROCESSOR_SWITCH_PREFIX + 'dummy')
-        self.assertIsNone(cache.get(PAYMENT_PROCESSOR_CACHE_KEY))
+        self.assertFalse(TieredCache.get_cached_response(PAYMENT_PROCESSOR_CACHE_KEY).is_found)

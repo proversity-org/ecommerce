@@ -4,29 +4,36 @@ from __future__ import unicode_literals
 import logging
 import warnings
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.http import HttpResponseBadRequest, HttpResponseForbidden
 from django.utils.decorators import method_decorator
 from django.utils.translation import ugettext as _
+from edx_django_utils.cache import DEFAULT_REQUEST_CACHE, TieredCache
 from edx_rest_framework_extensions.permissions import IsSuperuser
 from oscar.core.loading import get_class, get_model
-from rest_framework import generics, status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework import generics, status, viewsets
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.permissions import DjangoModelPermissions, IsAuthenticated
 from rest_framework.response import Response
 
+from ecommerce.core.utils import get_cache_key
 from ecommerce.enterprise.entitlements import get_entitlement_voucher
 from ecommerce.extensions.analytics.utils import audit_log
 from ecommerce.extensions.api import data as data_api
 from ecommerce.extensions.api import exceptions as api_exceptions
-from ecommerce.extensions.api.serializers import OrderSerializer
+from ecommerce.extensions.api.permissions import IsStaffOrOwner
+from ecommerce.extensions.api.serializers import BasketSerializer, OrderSerializer
+from ecommerce.extensions.api.throttles import ServiceUserThrottle
+from ecommerce.extensions.basket.constants import TEMPORARY_BASKET_CACHE_KEY
 from ecommerce.extensions.basket.utils import attribute_cookie_data
 from ecommerce.extensions.checkout.mixins import EdxOrderPlacementMixin
 from ecommerce.extensions.partner.shortcuts import get_partner_for_site
 from ecommerce.extensions.payment import exceptions as payment_exceptions
 from ecommerce.extensions.payment.helpers import get_default_processor_class, get_processor_class_by_name
 
-Applicator = get_class('offer.utils', 'Applicator')
+Applicator = get_class('offer.applicator', 'Applicator')
 Basket = get_model('basket', 'Basket')
 logger = logging.getLogger(__name__)
 Order = get_model('order', 'Order')
@@ -328,6 +335,21 @@ class OrderByBasketRetrieveView(generics.RetrieveAPIView):
         return queryset
 
 
+class BasketViewSet(viewsets.ReadOnlyModelViewSet):
+    """ View Set for Baskets"""
+    permission_classes = (IsAuthenticated, IsStaffOrOwner, DjangoModelPermissions,)
+    serializer_class = BasketSerializer
+    throttle_classes = (ServiceUserThrottle,)
+
+    def get_queryset(self):
+        user = self.request.user
+        # only accessible for staff
+        if not user.is_staff:
+            raise PermissionDenied
+
+        return Basket.objects.filter(site=self.request.site)
+
+
 class BasketDestroyView(generics.DestroyAPIView):
     lookup_url_kwarg = 'basket_id'
     permission_classes = (IsAuthenticated, IsSuperuser,)
@@ -336,64 +358,16 @@ class BasketDestroyView(generics.DestroyAPIView):
 
 class BasketCalculateView(generics.GenericAPIView):
     permission_classes = (IsAuthenticated,)
+    MARKETING_USER = 'marketing_site_worker'
 
-    def get(self, request):
-        """ Calculate basket totals given a list of sku's
-
-        Create a temporary basket add the sku's and apply an optional voucher code.
-        Then calculate the total price less discounts. If a voucher code is not
-        provided apply a voucher in the Enterprise entitlements available
-        to the user.
-
-        Arguments:
-            sku (string): A list of sku(s) to calculate
-            code (string): Optional voucher code to apply to the basket.
-            username (string): Optional username of a user for which to caclulate the basket.
-
-        Returns:
-            JSON: {
-                    'total_incl_tax_excl_discounts': basket.total_incl_tax_excl_discounts,
-                    'total_incl_tax': basket.total_incl_tax,
-                    'currency': basket.currency
-                }
-        """
-        partner = get_partner_for_site(request)
-        skus = request.GET.getlist('sku')
-        if not skus:
-            return HttpResponseBadRequest(_('No SKUs provided.'))
-
-        code = request.GET.get('code', None)
+    def _calculate_temporary_basket_atomic(self, user, request, products, voucher, skus, code):
+        response = None
         try:
-            voucher = Voucher.objects.get(code=code) if code else None
-        except Voucher.DoesNotExist:
-            voucher = None
-
-        products = Product.objects.filter(stockrecords__partner=partner, stockrecords__partner_sku__in=skus)
-        if not products:
-            return HttpResponseBadRequest(_('Products with SKU(s) [{skus}] do not exist.').format(skus=', '.join(skus)))
-
-        # If there is only one product apply an Enterprise entitlement voucher
-        if not voucher and len(products) == 1:
-            voucher = get_entitlement_voucher(request, products[0])
-
-        username = request.GET.get('username', default='')
-        user = request.user
-        # If a username is passed in, validate that the user has staff access or is the same user.
-        if username:
-            if user.is_staff or (user.username.lower() == username.lower()):
-                try:
-                    user = User.objects.get(username=username)
-                except User.DoesNotExist:
-                    logger.debug('Request username: [%s] does not exist', username)
-            else:
-                return HttpResponseForbidden('Unauthorized user credentials')
-
-        # We wrap this in an atomic operation so we never commit this to the db.
-        # This is to avoid merging this temporary basket with a real user basket.
-        try:
+            # We wrap this in an atomic operation so we never commit this to the db.
+            # This is to avoid merging this temporary basket with a real user basket.
             with transaction.atomic():
                 basket = Basket(owner=user, site=request.site)
-                basket.strategy = Selector().strategy(user=user)
+                basket.strategy = Selector().strategy(user=user, request=request)
 
                 for product in products:
                     basket.add_product(product, 1)
@@ -424,5 +398,107 @@ class BasketCalculateView(generics.GenericAPIView):
                 skus, code
             )
             raise
+        return response
+
+    def get(self, request):
+        """ Calculate basket totals given a list of sku's
+
+        Create a temporary basket add the sku's and apply an optional voucher code.
+        Then calculate the total price less discounts. If a voucher code is not
+        provided apply a voucher in the Enterprise entitlements available
+        to the user.
+
+        Query Params:
+            sku (string): A list of sku(s) to calculate
+            code (string): Optional voucher code to apply to the basket.
+            username (string): Optional username of a user for which to calculate the basket.
+
+        Returns:
+            JSON: {
+                    'total_incl_tax_excl_discounts': basket.total_incl_tax_excl_discounts,
+                    'total_incl_tax': basket.total_incl_tax,
+                    'currency': basket.currency
+                }
+        """
+        DEFAULT_REQUEST_CACHE.set(TEMPORARY_BASKET_CACHE_KEY, True)
+
+        partner = get_partner_for_site(request)
+        skus = request.GET.getlist('sku')
+        if not skus:
+            return HttpResponseBadRequest(_('No SKUs provided.'))
+        skus.sort()
+
+        code = request.GET.get('code', None)
+        try:
+            voucher = Voucher.objects.get(code=code) if code else None
+        except Voucher.DoesNotExist:
+            voucher = None
+
+        products = Product.objects.filter(stockrecords__partner=partner, stockrecords__partner_sku__in=skus)
+        if not products:
+            return HttpResponseBadRequest(_('Products with SKU(s) [{skus}] do not exist.').format(skus=', '.join(skus)))
+
+        # If there is only one product apply an Enterprise entitlement voucher
+        if not voucher and len(products) == 1:
+            voucher = get_entitlement_voucher(request, products[0])
+
+        basket_owner = request.user
+
+        requested_username = request.GET.get('username', default='')
+        is_anonymous = request.GET.get('is_anonymous', 'false').lower() == 'true'
+
+        use_default_basket = is_anonymous
+
+        # validate query parameters
+        if requested_username and is_anonymous:
+            return HttpResponseBadRequest(_('Provide username or is_anonymous query param, but not both'))
+        elif not requested_username and not is_anonymous:
+            logger.warning("Request to Basket Calculate must supply either username or is_anonymous query"
+                           " param. Requesting user=%s. Future versions of this API will treat this "
+                           "WARNING as an ERROR and raise an exception.", basket_owner.username)
+            requested_username = request.user.username
+
+        # If a username is passed in, validate that the user has staff access or is the same user.
+        if requested_username:
+            if basket_owner.username.lower() == requested_username.lower():
+                pass
+            elif basket_owner.is_staff:
+                try:
+                    basket_owner = User.objects.get(username=requested_username)
+                except User.DoesNotExist:
+                    # This case represents a user who is logged in to marketing, but
+                    # doesn't yet have an account in ecommerce. These users have
+                    # never purchased before.
+                    use_default_basket = True
+            else:
+                return HttpResponseForbidden('Unauthorized user credentials')
+
+        if basket_owner.username == self.MARKETING_USER and not use_default_basket:
+            # For legacy requests that predate is_anonymous parameter, we will calculate
+            # an anonymous basket if the calculated user is the marketing user.
+            # TODO: LEARNER-5057: Remove this special case for the marketing user
+            # once logs show no more requests with no parameters (see above).
+            use_default_basket = True
+
+        if use_default_basket:
+            basket_owner = None
+
+        cache_key = None
+        if use_default_basket:
+            # For an anonymous user we can directly get the cached price, because
+            # there can't be any enrollments or entitlements.
+            cache_key = get_cache_key(
+                site_comain=request.site,
+                resource_name='calculate',
+                skus=skus
+            )
+            cached_response = TieredCache.get_cached_response(cache_key)
+            if cached_response.is_found:
+                return Response(cached_response.value)
+
+        response = self._calculate_temporary_basket_atomic(basket_owner, request, products, voucher, skus, code)
+
+        if response and use_default_basket:
+            TieredCache.set_all_tiers(cache_key, response, settings.ANONYMOUS_BASKET_CALCULATE_CACHE_TIMEOUT)
 
         return Response(response)

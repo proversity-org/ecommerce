@@ -4,19 +4,25 @@ from __future__ import unicode_literals
 import ddt
 import mock
 import responses
-from django.core.urlresolvers import reverse
 from django.test.client import RequestFactory
+from django.urls import reverse
 from oscar.apps.order.exceptions import UnableToPlaceOrder
 from oscar.apps.payment.exceptions import PaymentError
 from oscar.core.loading import get_class, get_model
 from oscar.test import factories
 from testfixtures import LogCapture
 
+from ecommerce.core.constants import ENROLLMENT_CODE_PRODUCT_CLASS_NAME, ENROLLMENT_CODE_SWITCH
+from ecommerce.core.models import BusinessClient
+from ecommerce.core.tests import toggle_switch
+from ecommerce.courses.tests.factories import CourseFactory
+from ecommerce.extensions.basket.utils import basket_add_organization_attribute
 from ecommerce.extensions.checkout.utils import get_receipt_page_url
 from ecommerce.extensions.payment.processors.paypal import Paypal
 from ecommerce.extensions.payment.tests.mixins import PaymentEventsMixin, PaypalMixin
 from ecommerce.extensions.payment.views.paypal import PaypalPaymentExecutionView
-from ecommerce.extensions.test.factories import create_basket
+from ecommerce.extensions.test.factories import create_basket, create_order
+from ecommerce.invoice.models import Invoice
 from ecommerce.tests.testcases import TestCase
 
 JSON = 'application/json'
@@ -26,8 +32,10 @@ Order = get_model('order', 'Order')
 PaymentEvent = get_model('order', 'PaymentEvent')
 PaymentEventType = get_model('order', 'PaymentEventType')
 PaymentProcessorResponse = get_model('payment', 'PaymentProcessorResponse')
+Product = get_model('catalogue', 'Product')
 Selector = get_class('partner.strategy', 'Selector')
 SourceType = get_model('payment', 'SourceType')
+
 
 post_checkout = get_class('checkout.signals', 'post_checkout')
 
@@ -73,9 +81,12 @@ class PaypalPaymentExecutionViewTests(PaypalMixin, PaymentEventsMixin, TestCase)
 
         return creation_response, execution_response
 
-    def _assert_order_placement_failure(self, error_message):
+    def _assert_order_placement_failure(self, basket_id):
         """Verify that order placement fails gracefully."""
-        logger_name = 'ecommerce.extensions.payment.views.paypal'
+        logger_name = 'ecommerce.extensions.checkout.mixins'
+        error_message = \
+            'Order Failure: Paypal payment was received, but an order for basket [{basket_id}] ' \
+            'could not be placed.'.format(basket_id=basket_id)
         with LogCapture(logger_name) as l:
             __, execution_response = self._assert_execution_redirect()
 
@@ -88,14 +99,6 @@ class PaypalPaymentExecutionViewTests(PaypalMixin, PaymentEventsMixin, TestCase)
             )
 
             l.check(
-                (
-                    logger_name,
-                    'INFO',
-                    'Payment [{payment_id}] approved by payer [{payer_id}]'.format(
-                        payment_id=self.PAYMENT_ID,
-                        payer_id=self.PAYER_ID
-                    )
-                ),
                 (logger_name, 'ERROR', error_message)
             )
 
@@ -120,6 +123,49 @@ class PaypalPaymentExecutionViewTests(PaypalMixin, PaymentEventsMixin, TestCase)
             ),
             fetch_redirect_response=False
         )
+
+    @responses.activate
+    def test_execution_for_bulk_purchase(self):
+        """
+        Verify redirection to LMS receipt page after attempted payment
+        execution if the Otto receipt page is disabled for bulk purchase and
+        also that the order is linked to the provided business client..
+        """
+        toggle_switch(ENROLLMENT_CODE_SWITCH, True)
+        self.mock_oauth2_response()
+
+        course = CourseFactory(partner=self.partner)
+        course.create_or_update_seat('verified', True, 50, create_enrollment_code=True)
+        self.basket = create_basket(owner=factories.UserFactory(), site=self.site)
+        enrollment_code = Product.objects.get(product_class__name=ENROLLMENT_CODE_PRODUCT_CLASS_NAME)
+        factories.create_stockrecord(enrollment_code, num_in_stock=2, price_excl_tax='10.00')
+        self.basket.add_product(enrollment_code, quantity=1)
+
+        # Create a payment record the view can use to retrieve a basket
+        self.mock_payment_creation_response(self.basket)
+        self.processor.get_transaction_parameters(self.basket, request=self.request)
+        self.mock_payment_execution_response(self.basket)
+        self.mock_payment_creation_response(self.basket, find=True)
+
+        # Manually add organization attribute on the basket for testing
+        self.RETURN_DATA.update({'organization': 'Dummy Business Client'})
+        basket_add_organization_attribute(self.basket, self.RETURN_DATA)
+
+        response = self.client.get(reverse('paypal:execute'), self.RETURN_DATA)
+        self.assertRedirects(
+            response,
+            get_receipt_page_url(
+                order_number=self.basket.order_number,
+                site_configuration=self.basket.site.siteconfiguration
+            ),
+            fetch_redirect_response=False
+        )
+
+        # Now verify that a new business client has been created and current
+        # order is now linked with that client through Invoice model.
+        order = Order.objects.filter(basket=self.basket).first()
+        business_client = BusinessClient.objects.get(name=self.RETURN_DATA['organization'])
+        assert Invoice.objects.get(order=order).business_client == business_client
 
     @ddt.data(
         None,  # falls back to PaypalMixin.PAYER_INFO, a fully-populated payer_info object
@@ -207,21 +253,34 @@ class PaypalPaymentExecutionViewTests(PaypalMixin, PaymentEventsMixin, TestCase)
         """
         with mock.patch.object(PaypalPaymentExecutionView, 'handle_order_placement',
                                side_effect=UnableToPlaceOrder) as fake_handle_order_placement:
-            error_message = 'Payment was received, but an order for basket [{basket_id}] could not be placed.'.format(
-                basket_id=self.basket.id,
-            )
-            self._assert_order_placement_failure(error_message)
+            self._assert_order_placement_failure(self.basket.id)
             self.assertTrue(fake_handle_order_placement.called)
 
     def test_unanticipated_error_during_order_placement(self):
         """Verify that unanticipated errors during order placement are handled gracefully."""
         with mock.patch.object(PaypalPaymentExecutionView, 'handle_order_placement',
                                side_effect=KeyError) as fake_handle_order_placement:
-            error_message = 'Payment was received, but an order for basket [{basket_id}] could not be placed.'.format(
-                basket_id=self.basket.id,
-            )
-            self._assert_order_placement_failure(error_message)
+            self._assert_order_placement_failure(self.basket.id)
             self.assertTrue(fake_handle_order_placement.called)
+
+    def test_duplicate_order_attempt_logging(self):
+        """
+        Verify that attempts at creation of a duplicate order are logged correctly
+        """
+        prior_order = create_order()
+        dummy_view = PaypalPaymentExecutionView()
+        self.request.site = self.site
+        dummy_view.request = self.request
+
+        with LogCapture(self.DUPLICATE_ORDER_LOGGER_NAME) as lc:
+            dummy_view.call_handle_order_placement(prior_order.basket, self.request)
+            lc.check(
+                (
+                    self.DUPLICATE_ORDER_LOGGER_NAME,
+                    'ERROR',
+                    self.get_duplicate_order_error_message(payment_processor='Paypal', order=prior_order)
+                ),
+            )
 
     @responses.activate
     def test_payment_error_with_duplicate_payment_id(self):

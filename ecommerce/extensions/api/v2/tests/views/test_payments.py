@@ -1,9 +1,9 @@
 import json
 
 from django.conf import settings
-from django.core.cache import cache
-from django.core.urlresolvers import reverse
 from django.test import override_settings
+from django.urls import reverse
+from edx_django_utils.cache import TieredCache
 from waffle.models import Switch
 
 from ecommerce.core.models import SiteConfiguration
@@ -34,7 +34,7 @@ class PaymentProcessorListViewTests(TestCase):
         self.addCleanup(reset_site_config)
 
         # Clear the view cache
-        cache.clear()
+        TieredCache.dangerous_clear_all_tiers()
 
     def toggle_payment_processor(self, processor, active):
         """Set the given payment processor's Waffle switch."""

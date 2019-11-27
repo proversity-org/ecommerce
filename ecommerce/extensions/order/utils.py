@@ -5,7 +5,7 @@ import logging
 
 import waffle
 from django.conf import settings
-from django.core.cache import cache
+from edx_django_utils.cache import TieredCache
 from edx_rest_api_client.client import EdxRestApiClient
 from edx_rest_api_client.exceptions import HttpNotFoundError
 from oscar.apps.order.utils import OrderCreator as OscarOrderCreator
@@ -77,7 +77,7 @@ class OrderNumberGenerator(object):
 
 class OrderCreator(OscarOrderCreator):
     def create_order_model(self, user, basket, shipping_address, shipping_method, shipping_charge, billing_address,
-                           total, order_number, status, **extra_order_fields):
+                           total, order_number, status, request=None, **extra_order_fields):
         """
         Create an order model.
 
@@ -95,6 +95,7 @@ class OrderCreator(OscarOrderCreator):
         order_data = {'basket': basket,
                       'number': order_number,
                       'site': site,
+                      'partner': site.siteconfiguration.partner,
                       'currency': total.currency,
                       'total_incl_tax': total.incl_tax,
                       'total_excl_tax': total.excl_tax,
@@ -149,15 +150,15 @@ class UserAlreadyPlacedOrder(object):
                                                   jwt=site.siteconfiguration.access_token)
         partner_short_code = site.siteconfiguration.partner.short_code
         key = 'course_entitlement_detail_{}{}'.format(entitlement_uuid, partner_short_code)
-        entitlement = cache.get(key)
-
-        if not entitlement:
+        entitlement_cached_response = TieredCache.get_cached_response(key)
+        if entitlement_cached_response.is_found:
+            entitlement = entitlement_cached_response.value
+        else:
             logger.debug('Trying to get entitlement {%s}', entitlement_uuid)
             entitlement = entitlement_api_client.entitlements(entitlement_uuid).get()
-            cache.set(key, entitlement, settings.COURSES_API_CACHE_TIMEOUT)
+            TieredCache.set_all_tiers(key, entitlement, settings.COURSES_API_CACHE_TIMEOUT)
 
         expired = entitlement.get('expired_at')
-
         logger.debug('Entitlement {%s} expired = {%s}', entitlement_uuid, expired)
 
         return expired

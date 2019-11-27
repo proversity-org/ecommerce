@@ -1,13 +1,16 @@
 """Test Order Utility classes """
+import datetime
 import json
 import logging
 
 import ddt
 import httpretty
 import mock
+import pytz
 from django.test.client import RequestFactory
+from edx_django_utils.cache import TieredCache
 from oscar.core.loading import get_class, get_model
-from oscar.test.newfactories import BasketFactory
+from oscar.test.factories import BasketFactory
 from requests import Timeout
 from testfixtures import LogCapture
 
@@ -22,6 +25,7 @@ from ecommerce.tests.factories import PartnerFactory, SiteConfigurationFactory
 from ecommerce.tests.testcases import TestCase
 
 LOGGER_NAME = 'ecommerce.extensions.order.utils'
+EXPIRED_DATE = datetime.datetime(year=1985, month=10, day=26, hour=1, minute=20, tzinfo=pytz.utc)
 
 Country = get_class('address.models', 'Country')
 NoShippingRequired = get_class('shipping.methods', 'NoShippingRequired')
@@ -112,17 +116,18 @@ class OrderCreatorTests(TestCase):
         """ Returns a new Referral associated with the specified basket. """
         return Referral.objects.create(basket=basket, affiliate_id=affiliate_id, site=basket.site)
 
-    def test_create_order_model_default_site(self):
+    def test_create_order_model_default_site_and_partner(self):
         """
-        Verify the create_order_model method associates the order with the default site
+        Verify the create_order_model method associates the order with the default site and it's partner
         if the basket does not have a site set.
         """
         # Create a basket without a site
         basket = self.create_basket(None)
 
-        # Ensure the order's site is set to the default site
+        # Ensure the order's site and partner is set to the default site and partner
         order = self.create_order_model(basket)
         self.assertEqual(order.site, self.site)
+        self.assertEqual(order.partner, self.partner)
 
     def test_create_order_model_basket_site(self):
         """ Verify the create_order_model method associates the order with the basket's site. """
@@ -133,9 +138,10 @@ class OrderCreatorTests(TestCase):
         # Associate the basket with the non-default site
         basket = self.create_basket(site)
 
-        # Ensure the order has the non-default site
+        # Ensure the order has the non-default site and partner
         order = self.create_order_model(basket)
         self.assertEqual(order.site, site)
+        self.assertEqual(order.partner, site_configuration.partner)
 
     def test_create_order_model_basket_referral(self):
         """ Verify the create_order_model method associates the order with the basket's site. """
@@ -310,3 +316,29 @@ class UserAlreadyPlacedOrderTests(RefundTestMixin, TestCase):
         refund_line.status = refund_line_status
         refund_line.save()
         self.assertEqual(UserAlreadyPlacedOrder.is_order_line_refunded(refund_line.order_line), is_refunded)
+
+    @httpretty.activate
+    def test_is_entitlement_expired_cached(self):
+        """
+        Test that entitlement's expired status gets cached
+
+        We expect 2 calls to set_all_tiers in the is_entitlement_expired
+        method due to:
+            - the site_configuration api setup
+            - the result being cached
+        """
+        self.mock_access_token_response()
+
+        self.course_entitlement.expires = EXPIRED_DATE
+        httpretty.register_uri(httpretty.GET, get_lms_entitlement_api_url() +
+                               'entitlements/' + self.course_entitlement_uuid + '/',
+                               status=200, body=json.dumps({}), content_type='application/json')
+
+        with mock.patch.object(TieredCache, 'set_all_tiers', wraps=TieredCache.set_all_tiers) as mocked_set_all_tiers:
+            mocked_set_all_tiers.assert_not_called()
+
+            _ = UserAlreadyPlacedOrder.is_entitlement_expired(self.course_entitlement_uuid, site=self.site)
+            self.assertEqual(mocked_set_all_tiers.call_count, 2)
+
+            _ = UserAlreadyPlacedOrder.is_entitlement_expired(self.course_entitlement_uuid, site=self.site)
+            self.assertEqual(mocked_set_all_tiers.call_count, 2)

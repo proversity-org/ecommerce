@@ -5,10 +5,9 @@ import mock
 from django.core import mail
 from oscar.core.loading import get_class, get_model
 from oscar.test import factories
-from oscar.test.newfactories import BasketFactory
 from testfixtures import LogCapture
 
-from ecommerce.core.constants import ENROLLMENT_CODE_PRODUCT_CLASS_NAME, ENROLLMENT_CODE_SWITCH
+from ecommerce.core.constants import ENROLLMENT_CODE_PRODUCT_CLASS_NAME
 from ecommerce.core.tests import toggle_switch
 from ecommerce.coupons.tests.mixins import CouponMixin
 from ecommerce.courses.tests.factories import CourseFactory
@@ -20,7 +19,7 @@ from ecommerce.programs.tests.mixins import ProgramTestMixin
 from ecommerce.tests.factories import ProductFactory
 from ecommerce.tests.testcases import TestCase
 
-Applicator = get_class('offer.utils', 'Applicator')
+Applicator = get_class('offer.applicator', 'Applicator')
 BasketAttribute = get_model('basket', 'BasketAttribute')
 BasketAttributeType = get_model('basket', 'BasketAttributeType')
 Benefit = get_model('offer', 'Benefit')
@@ -35,7 +34,7 @@ LOGGER_NAME = 'ecommerce.extensions.checkout.signals'
 class SignalTests(ProgramTestMixin, CouponMixin, TestCase):
     def setUp(self):
         super(SignalTests, self).setUp()
-        self.user = self.create_user()
+        self.user = self.create_user(email="example@example.com")
         self.request.user = self.user
         toggle_switch('ENABLE_NOTIFICATIONS', True)
 
@@ -50,9 +49,9 @@ class SignalTests(ProgramTestMixin, CouponMixin, TestCase):
         Returns:
             Order
         """
-        course = CourseFactory()
-        seat = course.create_or_update_seat(seat_type, False, 50, self.partner, credit_provider_id, None, 2)
-        basket = BasketFactory(owner=self.user, site=self.site)
+        course = CourseFactory(partner=self.partner)
+        seat = course.create_or_update_seat(seat_type, False, 50, credit_provider_id, None, 2)
+        basket = factories.BasketFactory(owner=self.user, site=self.site)
         basket.add_product(seat, 1)
         order = create_order(basket=basket, user=self.user)
         return order
@@ -135,6 +134,7 @@ class SignalTests(ProgramTestMixin, CouponMixin, TestCase):
         properties = {
             'orderId': order.number,
             'total': str(order.total_excl_tax),
+            'revenue': str(order.total_excl_tax),
             'currency': order.currency,
             'coupon': coupon,
             'discount': str(order.total_discount_incl_tax),
@@ -149,6 +149,8 @@ class SignalTests(ProgramTestMixin, CouponMixin, TestCase):
                 } for line in order.lines.all()
             ],
         }
+        if order.user:
+            properties['email'] = order.user.email
         if bundle_id:
             program = self.mock_get_program_data(fullBundle)
             if len(order.lines.all()) < len(program['courses']):
@@ -218,7 +220,7 @@ class SignalTests(ProgramTestMixin, CouponMixin, TestCase):
             _range = factories.RangeFactory(products=[product], )
             voucher, product = prepare_voucher(_range=_range, benefit_value=percent_benefit)
 
-            basket = BasketFactory(owner=self.user, site=self.site)
+            basket = factories.BasketFactory(owner=self.user, site=self.site)
             basket.add_product(product)
             basket.vouchers.add(voucher)
             Applicator().apply(basket, user=basket.owner, request=self.request)
@@ -242,7 +244,7 @@ class SignalTests(ProgramTestMixin, CouponMixin, TestCase):
                 condition=factories.ConditionFactory(type=Condition.COVERAGE, value=1, range=_range)
             )
 
-            basket = BasketFactory(owner=self.user, site=self.site)
+            basket = factories.BasketFactory(owner=self.user, site=self.site)
             basket.add_product(product)
             basket.vouchers.add(voucher)
             Applicator().apply(basket, user=basket.owner, request=self.request)
@@ -265,7 +267,7 @@ class SignalTests(ProgramTestMixin, CouponMixin, TestCase):
                 condition=factories.ConditionFactory(type=Condition.COVERAGE, value=1, range=_range)
             )
 
-            basket = BasketFactory(owner=self.user, site=self.site)
+            basket = factories.BasketFactory(owner=self.user, site=self.site)
             basket.add_product(product)
             Applicator().apply_offers(basket, [site_offer])
 
@@ -279,7 +281,7 @@ class SignalTests(ProgramTestMixin, CouponMixin, TestCase):
         with mock.patch('ecommerce.extensions.checkout.signals.track_segment_event') as mock_track:
 
             coupon = self.create_coupon()
-            basket = BasketFactory(owner=self.user, site=self.site)
+            basket = factories.BasketFactory(owner=self.user, site=self.site)
             basket.add_product(coupon)
 
             order = factories.create_order(basket=basket, user=self.user)
@@ -287,21 +289,16 @@ class SignalTests(ProgramTestMixin, CouponMixin, TestCase):
             assert not mock_track.called
 
     def test_track_completed_enrollment_order(self):
-        """ Make sure we do not send GA events for Enrollment Code orders """
+        """ Make sure we are sending GA events for Enrollment Code orders """
         with mock.patch('ecommerce.extensions.checkout.signals.track_segment_event') as mock_track:
 
-            toggle_switch(ENROLLMENT_CODE_SWITCH, True)
-            site_config = self.site.siteconfiguration
-            site_config.enable_enrollment_codes = True
-            site_config.save()
-
-            course = CourseFactory()
-            course.create_or_update_seat('verified', True, 50, self.partner, create_enrollment_code=True)
+            course = CourseFactory(partner=self.partner)
+            course.create_or_update_seat('verified', True, 50, create_enrollment_code=True)
             enrollment_code = Product.objects.get(product_class__name=ENROLLMENT_CODE_PRODUCT_CLASS_NAME)
 
-            basket = BasketFactory(owner=self.user, site=self.site)
+            basket = factories.BasketFactory(owner=self.user, site=self.site)
             basket.add_product(enrollment_code)
 
             order = factories.create_order(basket=basket, user=self.user)
             track_completed_order(None, order)
-            assert not mock_track.called
+            assert mock_track.called

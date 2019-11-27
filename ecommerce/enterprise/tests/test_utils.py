@@ -6,11 +6,14 @@ import ddt
 import httpretty
 from django.conf import settings
 from django.http.response import HttpResponse
+from edx_django_utils.cache import TieredCache
+from mock import patch
 from oscar.test.factories import VoucherFactory
 
 from ecommerce.enterprise.tests.mixins import EnterpriseServiceMockMixin
 from ecommerce.enterprise.utils import (
     enterprise_customer_user_needs_consent,
+    get_enterprise_catalog,
     get_enterprise_customer,
     get_enterprise_customer_uuid,
     get_enterprise_customers,
@@ -49,9 +52,18 @@ class EnterpriseUtilsTests(EnterpriseServiceMockMixin, TestCase):
         """
         self.mock_access_token_response()
         self.mock_specific_enterprise_customer_api(TEST_ENTERPRISE_CUSTOMER_UUID)
-        response = get_enterprise_customer(self.site, TEST_ENTERPRISE_CUSTOMER_UUID)
 
-        self.assertEqual(TEST_ENTERPRISE_CUSTOMER_UUID, response.get('id'))
+        # verify the caching
+        with patch.object(TieredCache, 'set_all_tiers', wraps=TieredCache.set_all_tiers) as mocked_set_all_tiers:
+            mocked_set_all_tiers.assert_not_called()
+
+            response = get_enterprise_customer(self.site, TEST_ENTERPRISE_CUSTOMER_UUID)
+            self.assertEqual(TEST_ENTERPRISE_CUSTOMER_UUID, response.get('id'))
+            self.assertEqual(mocked_set_all_tiers.call_count, 2)
+
+            cached_response = get_enterprise_customer(self.site, TEST_ENTERPRISE_CUSTOMER_UUID)
+            self.assertEqual(mocked_set_all_tiers.call_count, 2)
+            self.assertEqual(response, cached_response)
 
     @ddt.data(
         (
@@ -161,3 +173,20 @@ class EnterpriseUtilsTests(EnterpriseServiceMockMixin, TestCase):
         result = set_enterprise_customer_cookie(self.site, response, enterprise_customer_uuid)
 
         self.assertNotIn(settings.ENTERPRISE_CUSTOMER_COOKIE_NAME, result.cookies)
+
+    def test_get_enterprise_catalog(self):
+        """
+        Verify that "get_enterprise_catalog" returns an appropriate response from the
+        "enterprise-catalog" Enterprise service API endpoint.
+        """
+        enterprise_catalog_uuid = str(uuid.uuid4())
+        self.mock_access_token_response()
+        self.mock_enterprise_catalog_api_get(enterprise_catalog_uuid)
+        response = get_enterprise_catalog(self.site, enterprise_catalog_uuid, 50, 1)
+        self.assertTrue(enterprise_catalog_uuid in response['next'])
+        self.assertTrue(len(response['results']) == 3)
+        for result in response['results']:
+            self.assertTrue('course_runs' in result)
+
+        cached_response = get_enterprise_catalog(self.site, enterprise_catalog_uuid, 50, 1)
+        self.assertEqual(response, cached_response)

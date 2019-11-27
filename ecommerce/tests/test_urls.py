@@ -1,4 +1,4 @@
-from django.core.urlresolvers import reverse
+from django.urls import reverse
 
 from ecommerce.core.url_utils import get_lms_dashboard_url
 from ecommerce.tests.testcases import TestCase
@@ -22,7 +22,7 @@ class TestUrls(TestCase):
         """
         Verify that the API docs render.
         """
-        path = reverse('api-docs:docs-index')
+        path = reverse('api_docs')
         response = self.client.get(path)
 
         assert response.status_code == 200

@@ -30,6 +30,7 @@ def create_coupon_product(
         email_domains,
         end_datetime,
         enterprise_customer,
+        enterprise_customer_catalog,
         max_uses,
         note,
         partner,
@@ -57,6 +58,7 @@ def create_coupon_product(
         email_domains (str): Comma-separated list of email domains.
         end_datetime (Datetime): Voucher end Datetime.
         enterprise_customer (str): UUID of an EnterpriseCustomer to attach to this voucher
+        enterprise_customer_catalog (str): UUID of an EnterpriseCustomerCatalog to attach to this voucher
         max_uses (int): Number of Voucher max uses.
         note (str): Coupon note.
         partner (User): Partner associated with coupon Stock Record.
@@ -75,10 +77,7 @@ def create_coupon_product(
         IntegrityError: An error occurred when create_vouchers method returns
                         an IntegrityError exception
     """
-    product_class = ProductClass.objects.get(name=COUPON_PRODUCT_CLASS_NAME)
-    coupon_product = Product.objects.create(title=title, product_class=product_class)
-
-    ProductCategory.objects.get_or_create(product=coupon_product, category=category)
+    coupon_product = create_coupon_product_and_stockrecord(title, category, partner, price)
 
     # Vouchers are created during order and not fulfillment like usual
     # because we want vouchers to be part of the line in the order.
@@ -96,6 +95,7 @@ def create_coupon_product(
             email_domains=email_domains,
             end_datetime=end_datetime,
             enterprise_customer=enterprise_customer,
+            enterprise_customer_catalog=enterprise_customer_catalog,
             max_uses=max_uses,
             name=title,
             quantity=int(quantity),
@@ -108,12 +108,15 @@ def create_coupon_product(
         logger.exception('Failed to create vouchers for [%s] coupon.', coupon_product.title)
         raise
 
-    coupon_vouchers, __ = CouponVouchers.objects.get_or_create(coupon=coupon_product)
-    coupon_vouchers.vouchers.add(*vouchers)
-    coupon_product.attr.coupon_vouchers = coupon_vouchers
-    coupon_product.attr.note = note
-    coupon_product.save()
+    attach_vouchers_to_coupon_product(coupon_product, vouchers, note)
 
+    return coupon_product
+
+
+def create_coupon_product_and_stockrecord(title, category, partner, price):
+    product_class = ProductClass.objects.get(name=COUPON_PRODUCT_CLASS_NAME)
+    coupon_product = Product.objects.create(title=title, product_class=product_class)
+    ProductCategory.objects.get_or_create(product=coupon_product, category=category)
     sku = generate_sku(product=coupon_product, partner=partner)
     StockRecord.objects.update_or_create(
         defaults={
@@ -124,8 +127,17 @@ def create_coupon_product(
         partner_sku=sku,
         product=coupon_product
     )
-
     return coupon_product
+
+
+def attach_vouchers_to_coupon_product(coupon_product, vouchers, note, notify_email=None):
+    coupon_vouchers, __ = CouponVouchers.objects.get_or_create(coupon=coupon_product)
+    coupon_vouchers.vouchers.add(*vouchers)
+    coupon_product.attr.coupon_vouchers = coupon_vouchers
+    coupon_product.attr.note = note
+    if notify_email:
+        coupon_product.attr.notify_email = notify_email
+    coupon_product.save()
 
 
 def generate_sku(product, partner):

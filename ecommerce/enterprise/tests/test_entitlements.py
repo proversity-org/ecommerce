@@ -2,6 +2,8 @@
 import ddt
 import httpretty
 from django.conf import settings
+from edx_django_utils.cache import TieredCache
+from mock import patch
 from oscar.core.loading import get_model
 from requests.exceptions import ConnectionError, Timeout
 from slumber.exceptions import SlumberBaseException
@@ -37,8 +39,8 @@ class EntitlementsTests(EnterpriseServiceMockMixin, DiscoveryTestMixin, Discover
         # Enable enterprise functionality
         toggle_switch(settings.ENABLE_ENTERPRISE_ON_RUNTIME_SWITCH, True)
 
-        self.course = CourseFactory(id='edx/Demo_Course/DemoX')
-        course_seat = self.course.create_or_update_seat('verified', False, 100, partner=self.partner)
+        self.course = CourseFactory(id='edx/Demo_Course/DemoX', partner=self.partner)
+        course_seat = self.course.create_or_update_seat('verified', False, 100)
         stock_record = StockRecord.objects.get(product=course_seat)
         self.catalog = Catalog.objects.create(partner=self.partner)
         self.catalog.stock_records.add(stock_record)
@@ -371,6 +373,36 @@ class EntitlementsTests(EnterpriseServiceMockMixin, DiscoveryTestMixin, Discover
         self._assert_num_requests(2)
         self.assertTrue(is_course_available)
 
+    def test_is_course_in_enterprise_catalog_for_available_course_cached(self):
+        """
+        Verify that the response from the discovery API call made in method
+        "is_course_in_enterprise_catalog" is cached for cases where the
+        course is available in the enterprise course catalog.
+
+        We expect 2 calls to set_all_tiers in the
+        is_course_in_enterprise_catalog method due to:
+            - the site_configuration api setup
+            - the result being cached
+        """
+        enterprise_catalog_id = 1
+        self.mock_access_token_response()
+        self.mock_catalog_contains_endpoint(
+            discovery_api_url=self.site_configuration.discovery_api_url, catalog_id=enterprise_catalog_id,
+            course_run_ids=[self.course.id]
+        )
+        with patch.object(TieredCache, 'set_all_tiers', wraps=TieredCache.set_all_tiers) as mocked_set_all_tiers:
+            mocked_set_all_tiers.assert_not_called()
+
+            is_course_available = is_course_in_enterprise_catalog(
+                self.request.site, self.course.id, enterprise_catalog_id)
+            self.assertEqual(mocked_set_all_tiers.call_count, 2)
+            self.assertTrue(is_course_available)
+
+            is_course_available = is_course_in_enterprise_catalog(
+                self.request.site, self.course.id, enterprise_catalog_id)
+            self.assertEqual(mocked_set_all_tiers.call_count, 2)
+            self.assertTrue(is_course_available)
+
     def test_is_course_in_enterprise_catalog_for_unavailable_course(self):
         """
         Verify that method "is_course_in_enterprise_catalog" returns False if
@@ -390,6 +422,38 @@ class EntitlementsTests(EnterpriseServiceMockMixin, DiscoveryTestMixin, Discover
         # checking if course exists in course runs against the course catalog.
         self._assert_num_requests(2)
         self.assertFalse(is_course_available)
+
+    def test_is_course_in_enterprise_catalog_for_unavailable_course_cached(self):
+        """
+        Verify that the response from the discovery API call made in method
+        "is_course_in_enterprise_catalog" is cached for cases where the
+        course is not available in the enterprise course catalog.
+
+        We expect 2 calls to set_all_tiers due to:
+            - the site_configuration api setup
+            - the result being cached
+        """
+        enterprise_catalog_id = 1
+        self.mock_access_token_response()
+        self.mock_catalog_contains_endpoint(
+            discovery_api_url=self.site_configuration.discovery_api_url, catalog_id=enterprise_catalog_id,
+            course_run_ids=[self.course.id]
+        )
+
+        test_course = CourseFactory(id='edx/Non_Enterprise_Course/DemoX')
+
+        with patch.object(TieredCache, 'set_all_tiers', wraps=TieredCache.set_all_tiers) as mocked_set_all_tiers:
+            mocked_set_all_tiers.assert_not_called()
+
+            is_course_available = is_course_in_enterprise_catalog(
+                self.request.site, test_course.id, enterprise_catalog_id)
+            self.assertEqual(mocked_set_all_tiers.call_count, 2)
+            self.assertFalse(is_course_available)
+
+            is_course_available = is_course_in_enterprise_catalog(
+                self.request.site, test_course.id, enterprise_catalog_id)
+            self.assertEqual(mocked_set_all_tiers.call_count, 2)
+            self.assertFalse(is_course_available)
 
     @ddt.data(ConnectionError, SlumberBaseException, Timeout)
     def test_is_course_in_enterprise_catalog_for_error_in_get_course_catalogs(self, error):
@@ -420,3 +484,21 @@ class EntitlementsTests(EnterpriseServiceMockMixin, DiscoveryTestMixin, Discover
 
         log_message = 'Unable to connect to Discovery Service for catalog contains endpoint.'
         self._assert_is_course_in_enterprise_catalog_for_failure(2, log_message)
+
+    @ddt.data(None, '')
+    def test_get_course_entitlements_for_learner_with_invalid_catalog_id(self, enterprise_catalog_id):
+        """
+        Verify that method "get_course_entitlements_for_learner" logs and returns
+        empty list for entitlements if the enterprise learner API response has
+        invalid enterprise catalog id.
+        """
+        self.mock_access_token_response()
+        self.mock_enterprise_learner_api(catalog_id=enterprise_catalog_id)
+
+        expected_message = 'Invalid enterprise catalog id "[%s]"' % enterprise_catalog_id
+        self._assert_get_course_entitlements_for_learner_response(
+            expected_entitlements=None,
+            log_level='INFO',
+            log_message=expected_message,
+            expected_request_count=2,
+        )

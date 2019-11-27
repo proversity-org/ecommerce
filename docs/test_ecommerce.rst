@@ -101,6 +101,18 @@ these models, which are used for multi-tenancy.
       ecommerce.courses.tests.test_utils --settings=ecommerce.settings.test
       --with-ignore-docstrings --logging-level=DEBUG
 
+To debug when running tests using ``manage.py``, you may need to use the
+following instead of ``pdb`` directly, or nosetests may hang while creating
+the database::
+
+    import nose.tools as nosepdb; nosepdb.set_trace()
+
+* To run tests without creating a database (i.e. really fast), use pytest.
+  If a test has a database dependency, the test will not pass.
+
+  .. code-block:: bash
+
+      $ pytest path_to_test
 
 JavaScript Unit Tests
 **********************
@@ -237,6 +249,8 @@ for the following settings by using environment variables.
    - The OAuth2 access token used to authenticate requests.
  * - ECOMMERCE_URL_ROOT
    - The URL root for the E-Commerce service.
+ * - ECOMMERCE_TEST_WEB_SECURITY
+   - Whether to run security tests against the E-Commerce service.
  * - LMS_URL_ROOT
    - The URL root for the LMS.
  * - LMS_USERNAME

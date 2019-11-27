@@ -4,7 +4,7 @@
 {% load i18n %}
 {% load l10n %}
 {% load offer_tags %}
-{% load staticfiles %}
+{% load static %}
 {% load enterprise %}
 
 {% block title %}
@@ -36,11 +36,18 @@
               {% captureas link_start %}
                 <a href="mailto:{{ order.user.email }}">
               {% endcaptureas %}
-              {% blocktrans trimmed with email=order.user.email link_end="</a>" %}
-                Your order is complete. If you need a receipt, you can print this page.
-                You will also receive a confirmation message with this information at
-                {{ link_start }}{{ email }}{{ link_end }}.
-              {% endblocktrans %}
+              {% if has_enrollment_code_product %}
+                  {% blocktrans trimmed with email=order.user.email link_end="</a>" %}
+                      Your order is complete. You will receive a confirmation message and your enrollment code(s) at
+                      {{ link_start }}{{ email }}{{ link_end }}. If you need a receipt, you can print this page.
+                  {% endblocktrans %}
+              {% else %}
+                  {% blocktrans trimmed with email=order.user.email link_end="</a>" %}
+                      Your order is complete. If you need a receipt, you can print this page.
+                      You will also receive a confirmation message with this information at
+                      {{ link_start }}{{ email }}{{ link_end }}.
+                  {% endblocktrans %}
+              {% endif %}
             </div>
 
             {% if order.billing_address %}
@@ -82,11 +89,13 @@
                 <dd class="course-description">
                   <span>{{ line.title }}</span>
                   {% if line.product.course %}
-                    <p>{{ line.product.course.id|course_organization }}</p>
+                    <p class="course-description-subtitle" data-course-id="{{ line.product.course.id }}">
+                      {{ line.product.course.id|course_organization }}
+                    </p>
                   {% endif %}
                 </dd>
                 <dt class="line-price sr">{% trans "Item Price:" %}</dt>
-                <dd class="line-price price">{{ line.line_price_before_discounts_incl_tax|currency:order.currency }}</dd>
+                <dd class="line-price price">{{ line.unit_price_incl_tax|currency:order.currency }}</dd>
               </div>
             {% endfor %}
           </dl>
@@ -112,7 +121,17 @@
                         </span>
                       {% endwith %}
                     {% else %}
-                      <span class="discount">{{ discount.offer_name }}</span>
+                        <span class="discount">
+                            {% if offer.condition.enterprise_customer_name %}
+                                {% blocktrans trimmed with type=discount.offer.offer_type enterprise_name=discount.offer.condition.enterprise_customer_name %}
+                                    Discount of type {{ type }} provided by {{ enterprise_name }}
+                                {% endblocktrans %}
+                            {% else %}
+                                {% blocktrans trimmed with type=discount.offer.offer_type %}
+                                    Discount of type {{ type }} is provided.
+                                {% endblocktrans %}
+                            {% endif %}
+                        </span>
                     {% endif %}
 
                   </div>
@@ -154,17 +173,23 @@
         {% endif %}
       </div>
 
-      {% if verification_url and not user_verified %}
+      {% if not has_enrollment_code_product and show_verification_banner  %}
         <div class="nav-wizard row">
             {% include 'oscar/checkout/_verification_data.html' %}
         </div>
-      {% else %}
-        <div id="dashboard-link">
+      {% endif %}
+      <div id="cta-nav-links" class="row">
+        <div class="col-xs-12 text-right">
+          {% if not show_verification_banner %}
           <a class="dashboard-link nav-link" href="{{ order_dashboard_url }}">
-            {% trans "Go to Dashboard" %}
+            {% trans "Go to dashboard" %}
+          </a>
+          {% endif %}
+          <a class="find-more-courses-link nav-link" href="{{ explore_courses_url }}">
+            {% trans "Find more courses" %}
           </a>
         </div>
-      {% endif %}
+      </div>
     </div>
   </div>
 {% endblock content %}

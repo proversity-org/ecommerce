@@ -13,7 +13,7 @@ from ecommerce.tests.factories import PartnerFactory
 
 class ProgramTestMixin(DiscoveryTestMixin):
     def mock_program_detail_endpoint(self, program_uuid, discovery_api_url, empty=False, title='Test Program',
-                                     include_entitlements=True):
+                                     include_entitlements=True, status='active'):
         """ Mocks the program detail endpoint on the Catalog API.
         Args:
             program_uuid (uuid): UUID of the mocked program.
@@ -41,9 +41,9 @@ class ProgramTestMixin(DiscoveryTestMixin):
                 key = 'course-v1:test-org+course+' + str(i)
                 course_runs = []
                 for __ in range(1, 4):
-                    course_run = CourseFactory()
-                    course_run.create_or_update_seat('audit', False, Decimal(0), self.partner)
-                    course_run.create_or_update_seat('verified', True, Decimal(100), self.partner)
+                    course_run = CourseFactory(partner=self.partner)
+                    course_run.create_or_update_seat('audit', False, Decimal(0))
+                    course_run.create_or_update_seat('verified', True, Decimal(100))
 
                     course_runs.append({
                         'key': course_run.id,
@@ -59,6 +59,7 @@ class ProgramTestMixin(DiscoveryTestMixin):
             data = {
                 'uuid': program_uuid,
                 'title': title,
+                'status': status,
                 'type': 'MicroMockers',
                 'courses': courses,
                 'applicable_seat_types': [

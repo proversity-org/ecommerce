@@ -8,7 +8,7 @@ import mock
 from django.conf import settings
 from oscar.apps.payment.exceptions import PaymentError
 from oscar.core.loading import get_class, get_model
-from oscar.test.newfactories import UserFactory
+from oscar.test.factories import UserFactory
 from testfixtures import LogCapture
 
 from ecommerce.core.constants import SEAT_PRODUCT_CLASS_NAME
@@ -365,9 +365,9 @@ class RefundTests(RefundTestMixin, StatusTestsMixin, TestCase):
 
         user = UserFactory()
 
-        course = CourseFactory()
+        course = CourseFactory(partner=self.partner)
         price = Decimal(100.00)
-        product = course.create_or_update_seat('verified', True, price, self.partner)
+        product = course.create_or_update_seat('verified', True, price)
 
         basket = create_basket(site=self.site, owner=user, empty=True)
         basket.add_product(product)

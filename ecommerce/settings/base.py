@@ -70,12 +70,7 @@ TIME_ZONE = 'America/New_York'
 # http://www.i18nguy.com/unicode/language-identifiers.html
 LANGUAGE_CODE = 'en'
 
-# See: https://docs.djangoproject.com/en/dev/ref/settings/#site-id
-# This needs to be set to None in order to support multitenancy
-SITE_ID = None
-
-# See: https://github.com/edx/edx-django-sites-extensions
-DEFAULT_SITE_ID = 1
+SITE_ID = 1
 
 # See: https://docs.djangoproject.com/en/dev/ref/settings/#use-i18n
 USE_I18N = True
@@ -212,15 +207,19 @@ TEMPLATES = [
 # MIDDLEWARE CONFIGURATION
 # See: https://docs.djangoproject.com/en/dev/ref/settings/#middleware-classes
 MIDDLEWARE_CLASSES = (
+    'corsheaders.middleware.CorsMiddleware',
+    'edx_django_utils.cache.middleware.RequestCacheMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.locale.LocaleMiddleware',
     'django.middleware.common.CommonMiddleware',
+    'edx_rest_framework_extensions.auth.jwt.middleware.JwtAuthCookieMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.auth.middleware.SessionAuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
-    'django_sites_extensions.middleware.CurrentSiteWithDefaultMiddleware',
+    'django.contrib.sites.middleware.CurrentSiteMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'edx_rest_framework_extensions.auth.jwt.middleware.EnsureJWTAuthSettingsMiddleware',
     'waffle.middleware.WaffleMiddleware',
     # NOTE: The overridden BasketMiddleware relies on request.site. This middleware
     # MUST appear AFTER CurrentSiteMiddleware.
@@ -231,6 +230,9 @@ MIDDLEWARE_CLASSES = (
     'threadlocals.middleware.ThreadLocalMiddleware',
     'ecommerce.theming.middleware.CurrentSiteThemeMiddleware',
     'ecommerce.theming.middleware.ThemePreviewMiddleware',
+    'edx_django_utils.cache.middleware.TieredCacheMiddleware',
+    'edx_rest_framework_extensions.middleware.RequestMetricsMiddleware',
+    'edx_rest_framework_extensions.auth.jwt.middleware.EnsureJWTAuthSettingsMiddleware',
 )
 # END MIDDLEWARE CONFIGURATION
 
@@ -246,12 +248,21 @@ COMMERCE_API_TIMEOUT = 7
 COURSES_API_CACHE_TIMEOUT = 3600  # Value is in seconds
 PROGRAM_CACHE_TIMEOUT = 3600  # Value is in seconds.
 
+# Cache catalog results from the enterprise and discovery service.
+CATALOG_RESULTS_CACHE_TIMEOUT = 86400
+
+# Cache timeout for enterprise customer results from the enterprise service.
+ENTERPRISE_CUSTOMER_RESULTS_CACHE_TIMEOUT = 3600  # Value is in seconds
+
 # PROVIDER DATA PROCESSING
 PROVIDER_DATA_PROCESSING_TIMEOUT = 15  # Value is in seconds.
 CREDIT_PROVIDER_CACHE_TIMEOUT = 600
 
-# Enrollment API settings used for fetching information from LMS
-ENROLLMENT_API_CACHE_TIMEOUT = 30  # Value is in seconds.
+# Anonymous User Calculate Cache timeout
+ANONYMOUS_BASKET_CALCULATE_CACHE_TIMEOUT = 3600  # Value is in seconds.
+
+# LMS API settings used for fetching information from LMS
+LMS_API_CACHE_TIMEOUT = 30  # Value is in seconds.
 # END URL CONFIGURATION
 
 VOUCHER_CACHE_TIMEOUT = 10  # Value is in seconds.
@@ -277,6 +288,8 @@ DJANGO_APPS = [
     'crispy_forms',
     'solo',
     'social_django',
+    'rest_framework_swagger',
+    'django_sites_extensions',
 ]
 
 # Apps specific to this project go here.
@@ -291,6 +304,7 @@ LOCAL_APPS = [
     'ecommerce.sailthru',
     'ecommerce.enterprise',
     'ecommerce.management',
+    'ecommerce.journals',  # TODO: journals dependency
 ]
 
 # See: https://docs.djangoproject.com/en/dev/ref/settings/#installed-apps
@@ -391,6 +405,7 @@ AUTH_USER_MODEL = 'core.User'
 JWT_AUTH = {
     'JWT_SECRET_KEY': None,
     'JWT_ALGORITHM': 'HS256',
+    'JWT_AUTH_COOKIE': 'edx-jwt-cookie',
     'JWT_VERIFY_EXPIRATION': True,
     'JWT_LEEWAY': 1,
     'JWT_DECODE_HANDLER': 'ecommerce.extensions.api.handlers.jwt_decode_handler',
@@ -398,7 +413,7 @@ JWT_AUTH = {
     'JWT_ISSUERS': (),
     # NOTE (CCB): This is temporarily set to False until we decide what values are acceptable.
     'JWT_VERIFY_AUDIENCE': False,
-    'JWT_SECRET_KEYS': (),
+    'JWT_PUBLIC_SIGNING_JWK_SET': None,
 }
 
 # Service user for worker processes.
@@ -439,7 +454,7 @@ EXTRA_SCOPE = ['permissions']
 # DJANGO REST FRAMEWORK
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'edx_rest_framework_extensions.authentication.JwtAuthentication',
+        'edx_rest_framework_extensions.auth.jwt.authentication.JwtAuthentication',
         'ecommerce.extensions.api.authentication.BearerAuthentication',
         'rest_framework.authentication.SessionAuthentication',
     ),
@@ -454,6 +469,11 @@ REST_FRAMEWORK = {
     'TEST_REQUEST_DEFAULT_FORMAT': 'json',
     'TEST_REQUEST_RENDERER_CLASSES': (
         'rest_framework.renderers.JSONRenderer',
+    ),
+    'DEFAULT_RENDERER_CLASSES': (
+        'rest_framework.renderers.JSONRenderer',
+        'rest_framework.renderers.BrowsableAPIRenderer',
+        'rest_framework_csv.renderers.CSVRenderer',
     ),
 }
 # END DJANGO REST FRAMEWORK
@@ -470,6 +490,7 @@ TEST_RUNNER = 'django.test.runner.DiscoverRunner'
 SESSION_COOKIE_NAME = 'ecommerce_sessionid'
 CSRF_COOKIE_NAME = 'ecommerce_csrftoken'
 LANGUAGE_COOKIE_NAME = 'ecommerce_language'
+SESSION_COOKIE_SECURE = False
 # END COOKIE CONFIGURATION
 
 
@@ -501,6 +522,7 @@ CELERY_ROUTES = {
     'ecommerce_worker.fulfillment.v1.tasks.fulfill_order': {'queue': 'fulfillment'},
     'ecommerce_worker.sailthru.v1.tasks.update_course_enrollment': {'queue': 'email_marketing'},
     'ecommerce_worker.sailthru.v1.tasks.send_course_refund_email': {'queue': 'email_marketing'},
+    'ecommerce_worker.sailthru.v1.tasks.send_offer_assignment_email': {'queue': 'email_marketing'},
 }
 
 # Prevent Celery from removing handlers on the root logger. Allows setting custom logging handlers.
@@ -588,7 +610,43 @@ if os.environ.get('ENABLE_DJANGO_TOOLBAR', False):
     MIDDLEWARE_CLASSES += (
         'debug_toolbar.middleware.DebugToolbarMiddleware',
     )
-# END DJANGO DEBUG TOOLBAR CONFIGURATION
 
 # Determines if events are actually sent to Segment. This should only be set to False for testing purposes.
 SEND_SEGMENT_EVENTS = True
+
+NEW_CODES_EMAIL_CONFIG = {
+    'email_subject': 'New edX codes available',
+    'from_email': 'customersuccess@edx.org',
+    'email_body': '''
+        Hello,
+
+        This message is to inform you that a new order has been processed for your organization. Please visit the
+        following page, in your Admin Dashboard, to find new codes ready for use.
+
+        https://portal.edx.org/{enterprise_slug}/admin/codes
+
+        Having trouble accessing your codes? Please contact edX Enterprise Support at customersuccess@edx.org.
+        Thank you.
+    '''
+}
+
+OFFER_ASSIGNMENT_EMAIL_DEFAULT_TEMPLATE = '''
+    Your learning manager has provided you with a new access code to take a course at edX.
+    You may redeem this code for {REDEMPTIONS_REMAINING} courses.
+
+    edX login: {USER_EMAIL}
+    Enrollment url: {ENROLLMENT_URL}
+    Access Code: {CODE}
+    Expiration date: {EXPIRATION_DATE}
+
+    You may go directly to the Enrollment URL to view courses that are available for this code
+    or you can insert the access code at check out under "coupon code" for applicable courses.
+
+    For any questions, please reach out to your Learning Manager.
+'''
+OFFER_ASSIGNMENT_EMAIL_DEFAULT_SUBJECT = 'New edX course assignment'
+
+#SAILTHRU settings
+SAILTHRU_KEY = None
+SAILTHRU_SECRET = None
+

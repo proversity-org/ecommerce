@@ -1,6 +1,6 @@
 {% extends 'edx/base.html' %}
 {% load i18n %}
-{% load staticfiles %}
+{% load static %}
 
 {% block title %}{% trans "Courses" %}{% endblock %}
 
@@ -15,9 +15,6 @@
 
 {% block content %}
     <div id="app" class="container" data-credit-providers="{{ credit_providers }}"></div>
-    <script>
-        window.bulkEnrollmentCodesEnabled = {% if bulk_enrollment_codes_enabled %}true{% else %}false{% endif %};
-    </script>
 {% endblock %}
 
 {% block footer %}

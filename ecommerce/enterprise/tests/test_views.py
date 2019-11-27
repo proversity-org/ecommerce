@@ -1,7 +1,8 @@
 import uuid
 
 import httpretty
-from django.core.urlresolvers import reverse
+from django.conf import settings
+from django.urls import reverse
 from oscar.core.loading import get_model
 
 from ecommerce.enterprise.benefits import EnterprisePercentageDiscountBenefit
@@ -35,7 +36,7 @@ class EnterpriseOfferListViewTests(EnterpriseServiceMockMixin, ViewTestMixin, Te
         # These should be ignored since their associated Condition objects do NOT have an Enterprise Customer UUID.
         factories.ConditionalOfferFactory.create_batch(3)
 
-        enterprise_offers = factories.EnterpriseOfferFactory.create_batch(4, site=self.site)
+        enterprise_offers = factories.EnterpriseOfferFactory.create_batch(4, partner=self.partner)
 
         for offer in enterprise_offers:
             self.mock_specific_enterprise_customer_api(offer.condition.enterprise_customer_uuid)
@@ -52,31 +53,31 @@ class EnterpriseOfferListViewTests(EnterpriseServiceMockMixin, ViewTestMixin, Te
         """ Should return only Conditional Offers with Site offer type. """
 
         # Conditional Offer should contain a condition with enterprise customer uuid set in order to be returned
-        site_conditional_offer = factories.EnterpriseOfferFactory(site=self.site)
+        partner_conditional_offer = factories.EnterpriseOfferFactory(partner=self.partner)
 
-        # Conditional Offer with null Site or non-matching Site should not be returned
-        null_site_offer = factories.EnterpriseOfferFactory()
-        different_site_offer = factories.EnterpriseOfferFactory(site=factories.SiteConfigurationFactory().site)
+        # Conditional Offer with null Partner or non-matching Partner should not be returned
+        null_partner_offer = factories.EnterpriseOfferFactory()
+        different_partner_offer = factories.EnterpriseOfferFactory(partner=factories.SiteConfigurationFactory().partner)
         enterprise_offers = [
-            site_conditional_offer,
+            partner_conditional_offer,
             factories.EnterpriseOfferFactory(offer_type=ConditionalOffer.VOUCHER),
             factories.ConditionalOfferFactory(offer_type=ConditionalOffer.SITE),
-            null_site_offer,
-            different_site_offer
+            null_partner_offer,
+            different_partner_offer
         ]
 
         for offer in enterprise_offers:
             self.mock_specific_enterprise_customer_api(offer.condition.enterprise_customer_uuid)
 
         response = self.client.get(self.path)
-        self.assertEqual(list(response.context['object_list']), [site_conditional_offer])
+        self.assertEqual(list(response.context['object_list']), [partner_conditional_offer])
 
 
 class EnterpriseOfferUpdateViewTests(EnterpriseServiceMockMixin, ViewTestMixin, TestCase):
 
     def setUp(self):
         super(EnterpriseOfferUpdateViewTests, self).setUp()
-        self.enterprise_offer = factories.EnterpriseOfferFactory(site=self.site)
+        self.enterprise_offer = factories.EnterpriseOfferFactory(partner=self.partner)
         self.path = reverse('enterprise:offers:edit', kwargs={'pk': self.enterprise_offer.pk})
 
         # NOTE: We activate httpretty here so that we don't have to decorate every test method.
@@ -138,3 +139,26 @@ class EnterpriseOfferCreateViewTests(EnterpriseServiceMockMixin, ViewTestMixin, 
         self.assertEqual(enterprise_offer.benefit.type, '')
         self.assertEqual(enterprise_offer.benefit.value, expected_benefit_value)
         self.assertEqual(enterprise_offer.benefit.proxy_class, class_path(EnterprisePercentageDiscountBenefit))
+
+
+class EnterpriseCouponAppViewTests(TestCase):
+    path = reverse('enterprise:coupons', args=[''])
+
+    def test_login_required(self):
+        """ Users are required to login before accessing the view. """
+        self.client.logout()
+        response = self.client.get(self.path)
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(settings.LOGIN_URL, response.url)
+
+    def assert_response_status(self, is_staff, status_code):
+        """Create a user and assert the status code from the response for that user."""
+        user = self.create_user(is_staff=is_staff)
+        self.client.login(username=user.username, password=self.password)
+        response = self.client.get(self.path)
+        self.assertEqual(response.status_code, status_code)
+
+    def test_staff_user_required(self):
+        """ Verify the view is only accessible to staff users. """
+        self.assert_response_status(is_staff=False, status_code=404)
+        self.assert_response_status(is_staff=True, status_code=200)

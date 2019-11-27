@@ -10,9 +10,9 @@ import jwt
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.sites.models import Site
-from django.core.cache import cache
-from django.core.urlresolvers import reverse
+from django.urls import reverse
 from django.utils.timezone import now
+from edx_django_utils.cache import TieredCache
 from mock import patch
 from oscar.core.loading import get_class, get_model
 from oscar.test import factories
@@ -21,11 +21,12 @@ from social_django.models import UserSocialAuth
 from threadlocals.threadlocals import set_thread_variable
 
 from ecommerce.core.url_utils import get_lms_url
+from ecommerce.courses.models import Course
 from ecommerce.courses.utils import mode_for_product
 from ecommerce.extensions.fulfillment.signals import SHIPPING_EVENT_NAME
 from ecommerce.tests.factories import SiteConfigurationFactory
 
-Applicator = get_class('offer.utils', 'Applicator')
+Applicator = get_class('offer.applicator', 'Applicator')
 Basket = get_model('basket', 'Basket')
 Benefit = get_model('offer', 'Benefit')
 Catalog = get_model('catalogue', 'Catalog')
@@ -48,6 +49,9 @@ class UserMixin(object):
 
     def create_user(self, **kwargs):
         """Create a user, with overrideable defaults."""
+        not_provided = object()
+        if kwargs.get('username', not_provided) is None:
+            kwargs.pop('username')
         return factories.UserFactory(password=self.password, **kwargs)
 
     def create_access_token(self, user, access_token=None):
@@ -65,7 +69,7 @@ class UserMixin(object):
         payload = {
             'username': user.username,
             'email': user.email,
-            'iss': settings.JWT_AUTH['JWT_ISSUERS'][0]
+            'iss': settings.JWT_AUTH['JWT_ISSUERS'][0]['ISSUER']
         }
         return "JWT {token}".format(token=jwt.encode(payload, secret))
 
@@ -77,13 +81,13 @@ class ThrottlingMixin(object):
         super(ThrottlingMixin, self).setUp()
 
         # Throttling for tests relies on the cache. To get around throttling, simply clear the cache.
-        self.addCleanup(cache.clear)
+        self.addCleanup(TieredCache.dangerous_clear_all_tiers)
 
 
 class JwtMixin(object):
     """ Mixin with JWT-related helper functions. """
     JWT_SECRET_KEY = settings.JWT_AUTH['JWT_SECRET_KEY']
-    issuer = settings.JWT_AUTH['JWT_ISSUERS'][0]
+    issuer = settings.JWT_AUTH['JWT_ISSUERS'][0]['ISSUER']
 
     def generate_token(self, payload, secret=None):
         """Generate a JWT token with the provided payload."""
@@ -194,19 +198,24 @@ class BusinessIntelligenceMixin(object):
 
     def assert_correct_event(
             self, mock_track, instance, expected_user_id, expected_client_id, expected_ip, order_number, currency,
-            total, coupon=None, discount='0.00'
+            email, total, revenue, coupon=None, discount='0.00'
     ):
         """Check that the tracking context was correctly reflected in the emitted event."""
         (event_user_id, event_name, event_payload), kwargs = mock_track.call_args
         self.assertEqual(event_user_id, expected_user_id)
         self.assertEqual(event_name, 'Order Completed')
-        self.assertEqual(kwargs['context'], {'ip': expected_ip, 'Google Analytics': {'clientId': expected_client_id}})
+        expected_context = {
+            'ip': expected_ip,
+            'Google Analytics': {'clientId': expected_client_id},
+            'page': {'url': 'https://testserver.fake/'},
+        }
+        self.assertEqual(kwargs['context'], expected_context)
         self.assert_correct_event_payload(
-            instance, event_payload, order_number, currency, total, coupon, discount
+            instance, event_payload, order_number, currency, email, total, revenue, coupon, discount
         )
 
     def assert_correct_event_payload(
-            self, instance, event_payload, order_number, currency, total,
+            self, instance, event_payload, order_number, currency, email, total, revenue,
             coupon, discount
     ):
         """
@@ -214,13 +223,14 @@ class BusinessIntelligenceMixin(object):
         completed order or refund.
         """
         self.assertEqual(
-            ['coupon', 'currency', 'discount', 'orderId', 'products', 'total'],
+            ['coupon', 'currency', 'discount', 'email', 'orderId', 'products', 'revenue', 'total'],
             sorted(event_payload.keys())
         )
         self.assertEqual(event_payload['orderId'], order_number)
         self.assertEqual(event_payload['currency'], currency)
         self.assertEqual(event_payload['coupon'], coupon)
         self.assertEqual(event_payload['discount'], discount)
+        self.assertEqual(event_payload['email'], email)
 
         lines = instance.lines.all()
         self.assertEqual(len(lines), len(event_payload['products']))
@@ -230,6 +240,9 @@ class BusinessIntelligenceMixin(object):
 
         if model_name == 'Order':
             self.assertEqual(event_payload['total'], str(total))
+            self.assertEqual(event_payload['revenue'], str(revenue))
+            # value of revenue field should be the same as total.
+            self.assertEqual(event_payload['revenue'], str(total))
 
             for line in lines:
                 tracked_product = tracked_products_dict.get(line.partner_sku)
@@ -252,6 +265,8 @@ class SiteMixin(object):
         domain = 'testserver.fake'
         self.client = self.client_class(SERVER_NAME=domain)
 
+        Course.objects.all().delete()
+        Partner.objects.all().delete()
         Site.objects.all().delete()
         self.site_configuration = SiteConfigurationFactory(
             from_email='from@example.com',
@@ -267,7 +282,8 @@ class SiteMixin(object):
             base_cookie_domain=domain,
         )
         self.partner = self.site_configuration.partner
-        self.site = self.site_configuration.site
+        self.partner.default_site = self.site = self.site_configuration.site
+        self.partner.save()
 
         self.request = RequestFactory(SERVER_NAME=domain).get('')
         self.request.session = None

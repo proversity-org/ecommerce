@@ -39,6 +39,8 @@ define([
 
             className: 'coupon-form-view',
 
+            updateWithPatch: false,
+
             template: _.template(CouponFormTemplate),
 
             seatTypes: [],
@@ -69,7 +71,7 @@ define([
                 }
             ],
 
-            bindings: {
+            baseCouponBindings: {
                 'select[name=category]': {
                     observe: 'category',
                     selectOptions: {
@@ -123,20 +125,11 @@ define([
                 'input[name=benefit_value]': {
                     observe: 'benefit_value'
                 },
-                'input[name=client]': {
-                    observe: 'client'
-                },
-                'input[name=course_id]': {
-                    observe: 'course_id'
-                },
                 'input[name=quantity]': {
                     observe: 'quantity'
                 },
                 'input[name=price]': {
                     observe: 'price'
-                },
-                'input[name=total_value]': {
-                    observe: 'total_value'
                 },
                 'input[name=start_date]': {
                     observe: 'start_date',
@@ -158,38 +151,6 @@ define([
                 },
                 'input[name=max_uses]': {
                     observe: 'max_uses'
-                },
-                'input[name=catalog_type]': {
-                    observe: 'catalog_type'
-                },
-                'textarea[name=catalog_query]': {
-                    observe: 'catalog_query'
-                },
-                'input[name=course_seat_types]': {
-                    observe: 'course_seat_types'
-                },
-                'select[name=course_catalog]': {
-                    observe: 'course_catalog',
-                    selectOptions: {
-                        collection: function() {
-                            return ecommerce.coupons.catalogs;
-                        },
-                        defaultOption: {id: '', name: ''},
-                        labelPath: 'name',
-                        valuePath: 'id'
-                    },
-                    setOptions: {
-                        validate: true
-                    },
-                    onGet: function(val) {
-                        return _.isUndefined(val) || _.isNull(val) ? '' : val.id;
-                    },
-                    onSet: function(val) {
-                        return {
-                            id: val,
-                            name: $('select[name=course_catalog] option:selected').text()
-                        };
-                    }
                 },
                 'input[name=email_domains]': {
                     observe: 'email_domains',
@@ -244,6 +205,50 @@ define([
                         }
                         return val;
                     }
+                }
+            },
+
+            couponBindings: {
+                'input[name=client]': {
+                    observe: 'client'
+                },
+                'input[name=course_id]': {
+                    observe: 'course_id'
+                },
+                'input[name=total_value]': {
+                    observe: 'total_value'
+                },
+                'input[name=catalog_type]': {
+                    observe: 'catalog_type'
+                },
+                'textarea[name=catalog_query]': {
+                    observe: 'catalog_query'
+                },
+                'input[name=course_seat_types]': {
+                    observe: 'course_seat_types'
+                },
+                'select[name=course_catalog]': {
+                    observe: 'course_catalog',
+                    selectOptions: {
+                        collection: function() {
+                            return ecommerce.coupons.catalogs;
+                        },
+                        defaultOption: {id: '', name: ''},
+                        labelPath: 'name',
+                        valuePath: 'id'
+                    },
+                    setOptions: {
+                        validate: true
+                    },
+                    onGet: function(val) {
+                        return _.isUndefined(val) || _.isNull(val) ? '' : val.id;
+                    },
+                    onSet: function(val) {
+                        return {
+                            id: val,
+                            name: $('select[name=course_catalog] option:selected').text()
+                        };
+                    }
                 },
                 'select[name=enterprise_customer]': {
                     observe: 'enterprise_customer',
@@ -268,9 +273,16 @@ define([
                         };
                     }
                 },
+                'input[name=enterprise_customer_catalog]': {
+                    observe: 'enterprise_customer_catalog'
+                },
                 'input[name=program_uuid]': {
                     observe: 'program_uuid'
                 }
+            },
+
+            bindings: function() {
+                return _.extend({}, this.baseCouponBindings, this.couponBindings);
             },
 
             events: {
@@ -290,35 +302,49 @@ define([
                 'click #cancel-button': 'cancelButtonClicked'
             },
 
+            getEditableAttributes: function() {
+                return [
+                    'benefit_value',
+                    'catalog_query',
+                    'category',
+                    'client',
+                    'course_seat_types',
+                    'course_catalog',
+                    'end_date',
+                    'enterprise_customer',
+                    'enterprise_customer_catalog',
+                    'invoice_discount_type',
+                    'invoice_discount_value',
+                    'invoice_number',
+                    'invoice_payment_date',
+                    'invoice_type',
+                    'max_uses',
+                    'note',
+                    'price',
+                    'program_uuid',
+                    'start_date',
+                    'tax_deducted_source',
+                    'title',
+                    'email_domains'
+                ];
+            },
+
+            setupToggleListeners: function() {
+                this.listenTo(this.model, 'change:coupon_type', this.toggleCouponTypeField);
+                this.listenTo(this.model, 'change:voucher_type', this.toggleVoucherTypeField);
+                this.listenTo(this.model, 'change:code', this.toggleCodeField);
+                this.listenTo(this.model, 'change:quantity', this.toggleQuantityField);
+                this.listenTo(this.model, 'change:catalog_type', this.toggleCatalogTypeField);
+                this.listenTo(this.model, 'change:catalog_query', this.updateCatalogQuery);
+                this.listenTo(this.model, 'change:course_seat_types', this.updateCourseSeatTypes);
+            },
+
             initialize: function(options) {
                 this.alertViews = [];
                 this.editing = options.editing || false;
                 this.hiddenClass = 'hidden';
                 if (this.editing) {
-                    this.editableAttributes = [
-                        'benefit_value',
-                        'catalog_query',
-                        'category',
-                        'client',
-                        'course_seat_types',
-                        'course_catalog',
-                        'end_date',
-                        'enterprise_customer',
-                        'invoice_discount_type',
-                        'invoice_discount_value',
-                        'invoice_number',
-                        'invoice_payment_date',
-                        'invoice_type',
-                        'max_uses',
-                        'note',
-                        'price',
-                        'program_uuid',
-                        'start_date',
-                        'tax_deducted_source',
-                        'title',
-                        'email_domains'
-                    ];
-
+                    this.editableAttributes = this.getEditableAttributes();
                     // Store initial model attribute values in order to revert to them when cancel button is clicked.
                     this._initAttributes = $.extend(true, {}, this.model.attributes);
                 }
@@ -328,14 +354,7 @@ define([
                     seat_types: this.model.get('course_seat_types')
                 });
 
-                this.listenTo(this.model, 'change:coupon_type', this.toggleCouponTypeField);
-                this.listenTo(this.model, 'change:voucher_type', this.toggleVoucherTypeField);
-                this.listenTo(this.model, 'change:code', this.toggleCodeField);
-                this.listenTo(this.model, 'change:quantity', this.toggleQuantityField);
-                this.listenTo(this.model, 'change:catalog_type', this.toggleCatalogTypeField);
-                this.listenTo(this.model, 'change:catalog_query', this.updateCatalogQuery);
-                this.listenTo(this.model, 'change:course_seat_types', this.updateCourseSeatTypes);
-
+                this.setupToggleListeners();
                 this._super();
             },
 
@@ -483,9 +502,11 @@ define([
 
             toggleEnterpriseRelatedFields: function(hide) {
                 this.formGroup('[name=enterprise_customer]').toggleClass(this.hiddenClass, hide);
+                this.formGroup('[name=enterprise_customer_catalog]').toggleClass(this.hiddenClass, hide);
 
                 if (hide) {
                     this.model.unset('enterprise_customer');
+                    this.model.unset('enterprise_customer_catalog');
                 }
             },
 
@@ -784,10 +805,10 @@ define([
                     this.$('.catalog-query').removeClass('editing');
                 }
 
-                if (this.$('[name=invoice_discount_type]').val() === 'Percentage') {
+                if (this.$('[name=invoice_discount_type]:checked').val() === 'Percentage') {
                     this.setLimitToElement(this.$('[name=invoice_discount_value]'), 100, 1);
                 }
-                if (this.$('[name=benefit_type]').val() === 'Percentage') {
+                if (this.$('[name=benefit_type]:checked').val() === 'Percentage') {
                     this.setLimitToElement(this.$('[name=benefit_value]'), 100, 1);
                 }
 

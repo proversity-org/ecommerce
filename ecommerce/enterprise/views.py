@@ -2,9 +2,9 @@
 import logging
 
 from django.contrib import messages
-from django.core.urlresolvers import reverse
+from django.urls import reverse
 from django.utils.translation import ugettext_lazy as _
-from django.views.generic import CreateView, ListView, UpdateView
+from django.views.generic import CreateView, ListView, TemplateView, UpdateView
 from oscar.core.loading import get_model
 
 from ecommerce.core.views import StaffOnlyMixin
@@ -26,7 +26,7 @@ class EnterpriseOfferViewMixin(StaffOnlyMixin):
 
     def get_queryset(self):
         return super(EnterpriseOfferViewMixin, self).get_queryset().filter(
-            site=self.request.site.id,
+            partner=self.request.site.siteconfiguration.partner,
             condition__enterprise_customer_uuid__isnull=False,
             offer_type=ConditionalOffer.SITE
         )
@@ -78,3 +78,12 @@ class EnterpriseOfferUpdateView(EnterpriseOfferProcessFormViewMixin, UpdateView)
 
 class EnterpriseOfferListView(EnterpriseOfferViewMixin, ListView):
     template_name = 'enterprise/enterpriseoffer_list.html'
+
+
+class EnterpriseCouponAppView(StaffOnlyMixin, TemplateView):
+    template_name = 'enterprise/enterprise_coupon_app.html'
+
+    def get_context_data(self, **kwargs):
+        context = super(EnterpriseCouponAppView, self).get_context_data(**kwargs)
+        context['admin'] = 'enterprise_coupons'
+        return context

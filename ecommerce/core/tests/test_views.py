@@ -5,9 +5,9 @@ import mock
 from auth_backends.tests.mixins import LogoutViewTestMixin
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.core.urlresolvers import reverse
 from django.db import DatabaseError
 from django.test.utils import override_settings
+from django.urls import reverse
 from rest_framework import status
 
 from ecommerce.core.constants import Status
@@ -26,6 +26,12 @@ class HealthTests(TestCase):
     def test_all_services_available(self):
         """Test that the endpoint reports when all services are healthy."""
         self._assert_health(status.HTTP_200_OK, Status.OK, Status.OK)
+
+    @mock.patch('newrelic.agent')
+    def test_health_check_is_ignored_by_new_relic(self, mock_newrelic_agent):
+        """Test that the health endpoint is ignored by NewRelic"""
+        self._assert_health(status.HTTP_200_OK, Status.OK, Status.OK)
+        self.assertTrue(mock_newrelic_agent.ignore_transaction.called)
 
     @mock.patch('django.contrib.sites.middleware.get_current_site', mock.Mock(return_value=None))
     @mock.patch('django.db.backends.base.base.BaseDatabaseWrapper.cursor', mock.Mock(side_effect=DatabaseError))

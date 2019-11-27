@@ -12,9 +12,9 @@ from collections import OrderedDict
 from urllib import urlencode
 
 from django.conf import settings
-from django.core.cache import cache
-from django.core.urlresolvers import reverse
 from django.http import HttpResponseRedirect
+from django.urls import reverse
+from edx_django_utils.cache import TieredCache
 from oscar.core.loading import get_model
 from requests.exceptions import ConnectionError, Timeout
 from slumber.exceptions import SlumberBaseException
@@ -116,6 +116,10 @@ def get_course_entitlements_for_learner(site, user, course_id):
     try:
         enterprise_catalog_id = enterprise_learner_data[0]['enterprise_customer']['catalog']
         learner_id = enterprise_learner_data[0]['id']
+
+        if not enterprise_catalog_id:
+            logger.info('Invalid enterprise catalog id "[%s]"', enterprise_catalog_id)
+            return None
     except KeyError:
         logger.exception('Invalid structure for enterprise learner API response for the learner [%s]', user.username)
         return None
@@ -168,14 +172,15 @@ def is_course_in_enterprise_catalog(site, course_id, enterprise_catalog_id):
         course_id=course_id,
         catalog_id=enterprise_catalog_id
     )
-    response = cache.get(cache_key)
-    if not response:
+    cached_response = TieredCache.get_cached_response(cache_key)
+    if cached_response.is_found:
+        response = cached_response.value
+    else:
         try:
-            # GET: /api/v1/catalogs/{catalog_id}/contains?course_run_id={course_run_ids}
             response = site.siteconfiguration.discovery_api_client.catalogs(enterprise_catalog_id).contains.get(
                 course_run_id=course_id
             )
-            cache.set(cache_key, response, settings.COURSES_API_CACHE_TIMEOUT)
+            TieredCache.set_all_tiers(cache_key, response, settings.COURSES_API_CACHE_TIMEOUT)
         except (ConnectionError, SlumberBaseException, Timeout):
             logger.exception('Unable to connect to Discovery Service for catalog contains endpoint.')
             return False
@@ -201,9 +206,9 @@ def get_available_voucher_for_product(request, product, vouchers):
     for voucher in vouchers:
         is_valid_voucher, __ = voucher_is_valid(voucher, [product], request)
         if is_valid_voucher:
-            voucher_offer = voucher.offers.first()
+            voucher_offer = voucher.best_offer
             offer_range = voucher_offer.condition.range
-            if offer_range.contains_product(product):
+            if offer_range and offer_range.contains_product(product):
                 return voucher
 
     # Explicitly return None in case product has no valid voucher
@@ -246,7 +251,7 @@ def get_enterprise_code_redemption_redirect(request, products, skus, failure_vie
                     # The basket views do not handle getting data sharing consent. However, the coupon redemption
                     # view does. By adding the `failure_url` parameter, we're informing that view that, in the
                     # event required consent for a coupon can't be collected, the user ought to be directed
-                    # back to this single-item basket view, with the `consent_failed` parameter applied so that
+                    # back to basket view, with the `consent_failed` parameter applied so that
                     # we know not to try to apply the enterprise coupon again.
                     (
                         'failure_url', request.build_absolute_uri(
