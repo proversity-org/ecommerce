@@ -120,6 +120,20 @@ def send_course_purchase_email(sender, order=None, **kwargs):  # pylint: disable
                     'receipt_page_url': receipt_page_url,
                 }
 
+                if credit_provider_id:
+                    provider_data = get_credit_provider_details(
+                        access_token=order.site.siteconfiguration.access_token,
+                        credit_provider_id=credit_provider_id,
+                        site_configuration=order.site.siteconfiguration
+                    )
+                else:
+                    provider_data = None
+
+                context = {
+                        'course_title': product.title,
+                        'receipt_page_url': receipt_page_url,
+                    }
+
                 if provider_data:
                     commtype_code = 'CREDIT_RECEIPT'
 
