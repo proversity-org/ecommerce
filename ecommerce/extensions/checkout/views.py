@@ -197,7 +197,8 @@ class ReceiptResponseView(ThankYouView):
         context.update(self.get_show_verification_banner_context(context))
         context.update({
             'explore_courses_url': get_lms_explore_courses_url(),
-            'has_enrollment_code_product': has_enrollment_code_product
+            'has_enrollment_code_product': has_enrollment_code_product,
+            'custom_settings': self.request.site.siteconfiguration.custom_settings,
         })
         return context
 
