@@ -35,14 +35,18 @@ from ecommerce.extensions.fulfillment.status import LINE
 from ecommerce.extensions.voucher.models import OrderLineVouchers
 from ecommerce.extensions.voucher.utils import create_vouchers
 from ecommerce.notifications.notifications import send_notification
+from ecommerce.programs.utils import get_program
 
 Benefit = get_model('offer', 'Benefit')
+BasketAttribute = get_model('basket', 'BasketAttribute')
 Option = get_model('catalogue', 'Option')
 Product = get_model('catalogue', 'Product')
 Range = get_model('offer', 'Range')
 Voucher = get_model('voucher', 'Voucher')
 StockRecord = get_model('partner', 'StockRecord')
 logger = logging.getLogger(__name__)
+
+BUNDLE = 'bundle_identifier'
 
 
 class BaseFulfillmentModule(object):  # pragma: no cover
@@ -131,12 +135,79 @@ class BaseFulfillmentModule(object):  # pragma: no cover
                 "course_id": line.product.attr.course_key,
             }
 
-            logging.info("Calling enrollment plugin with: %s", payload)
+            logger.info("Calling enrollment plugin with: %s", payload)
             try:
                 data = getattr(api, "external-enrollment").post(payload)
-                logging.info("External enrollment call completed - data %s", data)
+                logger.info("External enrollment call completed - data %s", data)
             except Exception as e:  # pylint: disable=broad-except
-                logging.error("External enrollment call fail, reason: " + str(e))
+                logger.error("External enrollment call fail, reason: " + str(e))
+
+    def get_program_info(self, order):
+        """
+        If available, get the program information related to an order.
+        """
+
+        program = None
+        try:
+            bundle_id = BasketAttribute.objects.get(basket=order.basket, attribute_type__name=BUNDLE).value_text
+            program = get_program(bundle_id, order.basket.site.siteconfiguration)
+            if len(order.lines.all()) < len(program.get('courses')):
+                variant = 'partial'
+            else:
+                variant = 'full'
+            bundle_product = {
+                'id': bundle_id,
+                'price': '0',
+                'quantity': str(len(order.lines.all())),
+                'category': 'bundle',
+                'variant': variant,
+                'name': program.get('title')
+            }
+            program['bundle_product'] = bundle_product
+        except BasketAttribute.DoesNotExist:
+            logger.info(
+                'Failed to get program info: There is no program or bundle associated with order number %s',
+                order.number
+            )
+
+        return program
+
+    def execute_salesforce_enrollment(self, order, supported_lines):
+        """
+        Method to complete an external enrollment if required.
+        """
+
+        api = EdxRestApiClient(
+            url=get_external_enrollment_api_url(),
+            jwt=order.site.siteconfiguration.access_token,
+            append_slash=False,
+        )
+        payload = dict()
+        program = self.get_program_info(order)
+        if program:
+            payload['program'] = program
+        order_details = {
+            'paid_amount': str(order.total_excl_tax),
+            'currency': order.currency,
+            'discount': str(order.total_discount_incl_tax),
+            'supported_lines': [
+                {
+                    'user_email': order.user.email,
+                    'course_mode': mode_for_product(line.product),
+                    'course_id': line.product.attr.course_key,
+                    'ecommerce_name': line.product.course.id if line.product.course else line.product.title,
+                    'price': str(line.line_price_excl_tax),
+                } for line in supported_lines
+            ],
+        }
+        payload.update(order_details)
+
+        logger.info("Calling salesforce enrollment plugin with: %s", payload)
+        try:
+            data = getattr(api, "salesforce-enrollment").post(payload)
+            logger.info("Salesforce external enrollment call completed - data %s", data)
+        except Exception as e:  # pylint: disable=broad-except
+            logger.error("Salesforce external enrollment call failed, reason: " + str(e))
 
 
 class DonationsFromCheckoutTestFulfillmentModule(BaseFulfillmentModule):
