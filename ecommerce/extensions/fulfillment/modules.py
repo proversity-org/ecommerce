@@ -28,7 +28,7 @@ from ecommerce.core.url_utils import (
 from ecommerce.courses.models import Course
 from ecommerce.courses.utils import mode_for_product
 from ecommerce.enterprise.utils import get_or_create_enterprise_customer_user
-from ecommerce.extensions.analytics.utils import audit_log, parse_tracking_context
+from ecommerce.extensions.analytics.utils import audit_log, get_utm_session_parameters, parse_tracking_context
 from ecommerce.extensions.api.v2.views.coupons import CouponViewSet
 from ecommerce.extensions.checkout.utils import get_receipt_page_url
 from ecommerce.extensions.fulfillment.status import LINE
@@ -201,6 +201,7 @@ class BaseFulfillmentModule(object):  # pragma: no cover
             ],
         }
         payload.update(order_details)
+        payload.update(get_utm_session_parameters())
 
         logger.info("Calling salesforce enrollment plugin with: %s", payload)
         try:
