@@ -3,6 +3,7 @@ import logging
 from functools import wraps
 from urlparse import urlunsplit
 
+from crum import get_current_request
 from ecommerce.courses.utils import mode_for_product
 
 logger = logging.getLogger(__name__)
@@ -204,3 +205,30 @@ def get_google_analytics_client_id(request):
         return '.'.join(google_analytics_cookie.split('.')[2:])
 
     return None
+
+
+def get_utm_session_parameters():
+    """
+    Return utm parameters from the cookie or current url request.
+    The url values have priority over the cookie values, as such the cookie values
+    will be overwritten.
+
+    Returns:
+        dict: {
+            'utm_campaign': url_value or cookie_value or undefined,
+            'utm_source': url_value or cookie_value or undefined,
+            'utm_medium': url_value or cookie_value or undefined,
+        }.
+    """
+    request = get_current_request()
+    data = {}
+
+    if request:
+        data.update(request.COOKIES)
+        data.update(request.GET.dict())
+
+    return {
+        'utm_campaign': data.get('utm_campaign', 'Undefined'),
+        'utm_source': data.get('utm_source', 'Undefined'),
+        'utm_medium': data.get('utm_medium', 'Undefined'),
+    }

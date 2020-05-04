@@ -221,6 +221,7 @@ MIDDLEWARE_CLASSES = (
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'edx_rest_framework_extensions.auth.jwt.middleware.EnsureJWTAuthSettingsMiddleware',
     'waffle.middleware.WaffleMiddleware',
+    'crum.CurrentRequestUserMiddleware',
     # NOTE: The overridden BasketMiddleware relies on request.site. This middleware
     # MUST appear AFTER CurrentSiteMiddleware.
     'ecommerce.extensions.analytics.middleware.TrackingMiddleware',
@@ -649,4 +650,3 @@ OFFER_ASSIGNMENT_EMAIL_DEFAULT_SUBJECT = 'New edX course assignment'
 #SAILTHRU settings
 SAILTHRU_KEY = None
 SAILTHRU_SECRET = None
-
