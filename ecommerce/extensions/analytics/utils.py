@@ -211,24 +211,25 @@ def get_utm_session_parameters():
     """
     Return utm parameters from the cookie or current url request.
     The url values have priority over the cookie values, as such the cookie values
-    will be overwritten.
+    will be overwritten. If the value does not exist, the key won't be returned.
 
     Returns:
         dict: {
-            'utm_campaign': url_value or cookie_value or undefined,
-            'utm_source': url_value or cookie_value or undefined,
-            'utm_medium': url_value or cookie_value or undefined,
+            'utm_campaign': url_value or cookie_value,
+            'utm_source': url_value or cookie_value,
+            'utm_medium': url_value or cookie_value,
         }.
     """
     request = get_current_request()
     data = {}
+    utm_keys = [
+        'utm_campaign',
+        'utm_medium',
+        'utm_source',
+    ]
 
     if request:
         data.update(request.COOKIES)
         data.update(request.GET.dict())
 
-    return {
-        'utm_campaign': data.get('utm_campaign', 'Undefined'),
-        'utm_source': data.get('utm_source', 'Undefined'),
-        'utm_medium': data.get('utm_medium', 'Undefined'),
-    }
+    return {key: data[key] for key in utm_keys if key in data}
